@@ -1,0 +1,25 @@
+deepagents_agent:
+  responses_api_agents:
+    deepagents_agent:
+      entrypoint: app.py
+      resources_server:
+        type: resources_servers
+        name: ???
+      model_server:
+        type: responses_api_models
+        name: policy_model
+      concurrency: 32
+      max_turns: 30
+      recursion_limit: null
+      temperature: 1.0
+      system_prompt: null
+      backend: state
+      backend_root_dir: null
+      backend_virtual_mode: false
+      backend_inherit_env: false
+      execute_timeout: 60
+      skills: null
+      memory: null
+      chat_template_kwargs:
+        enable_thinking: true
+        truncate_history_thinking: false
