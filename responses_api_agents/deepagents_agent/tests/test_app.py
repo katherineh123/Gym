@@ -130,6 +130,7 @@ class TestGymChatModel:
 
         body = model._chat_body([messages.HumanMessage(content="hello")])
 
+        assert "model" not in body
         assert body["temperature"] == 0.5
         assert body["parallel_tool_calls"] is False
         assert [tool["function"]["name"] for tool in body["tools"]] == ["read_file"]

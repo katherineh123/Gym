@@ -392,7 +392,6 @@ def _build_gym_chat_model(
 
         def _chat_body(self, messages: Sequence[Any], stop: Optional[list[str]] = None) -> dict[str, Any]:
             body: dict[str, Any] = {
-                "model": self.model_name,
                 "messages": [_langchain_message_to_chat_dict(message) for message in messages],
             }
             request_params = dict(self.request_params)
