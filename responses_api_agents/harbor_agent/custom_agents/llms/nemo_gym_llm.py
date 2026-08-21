@@ -23,6 +23,7 @@ from harbor.llms.base import (
     OutputLengthExceededError,
 )
 from harbor.models.metric import UsageInfo
+from harbor.utils.logger import logger
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -65,6 +66,7 @@ class NemoGymLLM(BaseLLM):
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
+        self._logger = logger.getChild(__name__)
         self._model_name = model_name
         self._api_base = api_base.rstrip("/")
         self._collect_rollout_details = collect_rollout_details

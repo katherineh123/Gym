@@ -33,9 +33,12 @@ from responses_api_agents.harbor_agent.custom_agents.llms.nemo_gym_llm import Ne
 def _make_llm(**kwargs) -> NemoGymLLM:
     defaults = dict(model_name="test-model", api_base="http://localhost:8000/v1")
     defaults.update(kwargs)
-    llm = NemoGymLLM(**defaults)
-    llm._logger = logging.getLogger("test")
-    return llm
+    return NemoGymLLM(**defaults)
+
+
+def test_constructor_initializes_logger():
+    llm = _make_llm()
+    assert isinstance(llm._logger, logging.Logger)
 
 
 def _mock_response(content="ok", finish_reason="stop", extra_message=None, extra_choice=None, **top_level):
