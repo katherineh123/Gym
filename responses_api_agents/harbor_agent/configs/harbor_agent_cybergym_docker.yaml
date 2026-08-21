@@ -1,0 +1,40 @@
+harbor_agent:
+  responses_api_agents:
+    harbor_agent:
+      entrypoint: app.py
+      domain: agent
+      description: Harbor CyberGym level-1 evaluation through Terminus-2 and Docker.
+      concurrency: 1
+      harbor_ray_task_num_cpus: 0.1
+
+      harbor_datasets:
+        cybergym:
+          # Set CYBERGYM_DATASET_PATH to your Harbor CyberGym level-1 task directory.
+          local_dataset_path: "${oc.env:CYBERGYM_DATASET_PATH}"
+
+      harbor_agent_name: null
+      harbor_agent_import_path: "responses_api_agents.harbor_agent.custom_agents.terminus_2_nemo_gym:Terminus2NemoGym"
+      harbor_agent_kwargs:
+        max_turns: 100
+        interleaved_thinking: true
+        enable_summarize: true
+        collect_rollout_details: false
+        record_terminal_session: false
+        trajectory_config:
+          raw_content: true
+
+      harbor_environment_type: "docker"
+      harbor_environment_import_path: null
+      harbor_environment_kwargs: {}
+      harbor_no_delete: true
+
+      model_server:
+        type: responses_api_models
+        name: policy_model
+
+      harbor_agent_override_timeout: null
+      harbor_agent_max_timeout: null
+      harbor_verifier_override_timeout: null
+      harbor_verifier_max_timeout: null
+      harbor_timeout_multiplier: null
+      harbor_jobs_dir: "responses_api_agents/harbor_agent/jobs"

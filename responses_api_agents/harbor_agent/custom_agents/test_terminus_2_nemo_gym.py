@@ -15,8 +15,39 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from harbor.llms.base import BaseLLM
+
 from responses_api_agents.harbor_agent.custom_agents.llms.nemo_gym_llm import NemoGymLLM
 from responses_api_agents.harbor_agent.custom_agents.terminus_2_nemo_gym import Terminus2NemoGym
+
+
+def test_current_terminus_initialization_preserves_injected_llm(tmp_path):
+    llm = MagicMock(spec=BaseLLM)
+
+    agent = Terminus2NemoGym(
+        logs_dir=tmp_path,
+        model_name="test-model",
+        llm=llm,
+        reasoning_effort="xhigh",
+    )
+
+    assert agent._llm is llm
+
+
+def test_current_terminus_initialization_creates_nemo_gym_llm(tmp_path):
+    agent = Terminus2NemoGym(
+        logs_dir=tmp_path,
+        model_name="test-model",
+        api_base="http://localhost:8000/v1",
+        responses_create_params={"temperature": 0.4, "max_output_tokens": 256},
+        nemo_model_server_timeout_sec=321,
+    )
+
+    assert isinstance(agent._llm, NemoGymLLM)
+    assert agent._llm._api_base == "http://localhost:8000/v1"
+    assert agent._llm._timeout_sec == 321
+    assert agent._llm._extra_chat_params["temperature"] == 0.4
+    assert agent._llm._extra_chat_params["max_tokens"] == 256
 
 
 def test_attach_routed_experts_matches_by_rollout_details_not_call_order():

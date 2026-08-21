@@ -13,12 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import json
-from pathlib import Path
-from typing import Any, Literal
+from typing import Any, override
 
 from harbor.agents.terminus_2.terminus_2 import Terminus2
 from harbor.environments.base import BaseEnvironment
-from harbor.llms.base import BaseLLM
+from harbor.llms.base import BaseLLM, LLMBackend
 from harbor.models.agent.context import AgentContext
 
 from responses_api_agents.harbor_agent.custom_agents.llms.nemo_gym_llm import NemoGymLLM
@@ -34,69 +33,45 @@ class Terminus2NemoGym(Terminus2):
 
     def __init__(
         self,
-        logs_dir: Path,
-        model_name: str | None = None,
-        max_turns: int | None = None,
-        parser_name: str = "json",
-        api_base: str | None = None,
-        temperature: float = 0.7,
-        reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "default"] | None = None,
-        collect_rollout_details: bool = False,
-        session_id: str | None = None,
-        enable_summarize: bool = True,
-        proactive_summarization_threshold: int = 8000,
-        max_thinking_tokens: int | None = None,
-        model_info: dict | None = None,
-        trajectory_config: dict | None = None,
-        tmux_pane_width: int = 160,
-        tmux_pane_height: int = 40,
-        store_all_messages: bool = False,
-        record_terminal_session: bool = True,
+        *args: Any,
         llm: BaseLLM | None = None,
-        interleaved_thinking: bool = False,
         responses_create_params: dict[str, Any] | None = None,
         nemo_model_server_timeout_sec: float = 120.0,
-        *args: Any,
         **kwargs: Any,
     ) -> None:
-        if llm is None:
-            if model_name is None:
-                raise ValueError("model_name is required for Terminus2NemoGym")
-            if api_base is None:
-                raise ValueError("api_base is required for Terminus2NemoGym when llm is not provided")
+        self._provided_llm = llm
+        self._responses_create_params = responses_create_params
+        self._nemo_model_server_timeout_sec = nemo_model_server_timeout_sec
+        super().__init__(*args, **kwargs)
 
-            llm = NemoGymLLM(
-                model_name=model_name,
-                api_base=api_base,
-                collect_rollout_details=collect_rollout_details,
-                model_info=model_info,
-                responses_create_params=responses_create_params,
-                timeout_sec=nemo_model_server_timeout_sec,
-            )
+    @override
+    def _init_llm(
+        self,
+        llm_backend: LLMBackend | str,
+        model_name: str,
+        temperature: float | None,
+        collect_rollout_details: bool,
+        llm_kwargs: dict[str, Any] | None,
+        api_base: str | None,
+        session_id: str | None,
+        max_thinking_tokens: int | None,
+        reasoning_effort: str | None,
+        model_info: dict[str, Any] | None,
+        use_responses_api: bool,
+    ) -> BaseLLM:
+        """Create the NeMo Gym LLM through current Terminus-2's LLM hook."""
+        if self._provided_llm is not None:
+            return self._provided_llm
+        if api_base is None:
+            raise ValueError("api_base is required for Terminus2NemoGym when llm is not provided")
 
-        super().__init__(
-            logs_dir=logs_dir,
+        return NemoGymLLM(
             model_name=model_name,
-            max_turns=max_turns,
-            parser_name=parser_name,
             api_base=api_base,
-            temperature=temperature,
-            reasoning_effort=reasoning_effort,
             collect_rollout_details=collect_rollout_details,
-            session_id=session_id,
-            enable_summarize=enable_summarize,
-            proactive_summarization_threshold=proactive_summarization_threshold,
-            max_thinking_tokens=max_thinking_tokens,
             model_info=model_info,
-            trajectory_config=trajectory_config,
-            tmux_pane_width=tmux_pane_width,
-            tmux_pane_height=tmux_pane_height,
-            store_all_messages=store_all_messages,
-            record_terminal_session=record_terminal_session,
-            llm=llm,
-            interleaved_thinking=interleaved_thinking,
-            *args,
-            **kwargs,
+            responses_create_params=self._responses_create_params,
+            timeout_sec=self._nemo_model_server_timeout_sec,
         )
 
     async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:

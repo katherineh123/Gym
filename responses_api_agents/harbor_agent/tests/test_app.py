@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -29,6 +29,7 @@ from responses_api_agents.harbor_agent.app import (
     HarborAgent,
     HarborAgentConfig,
     HarborRunRequest,
+    run_harbor_job,
 )
 from responses_api_agents.harbor_agent.utils import HarborAgentUtils
 
@@ -318,6 +319,26 @@ def _harbor_run_mocks(
 
 
 class TestApp:
+    async def test_run_harbor_job_uses_async_job_factory(self, tmp_path: Path) -> None:
+        pytest.importorskip("harbor")
+        trial_dir = tmp_path / "test_job" / "test_trial"
+        trial_dir.mkdir(parents=True)
+        (trial_dir / "result.json").write_text("{}")
+
+        job = MagicMock()
+        job.run = AsyncMock()
+        with patch("harbor.job.Job.create", new=AsyncMock(return_value=job)) as create:
+            result = await run_harbor_job(
+                {
+                    "job_name": "test_job",
+                    "jobs_dir": str(tmp_path),
+                }
+            )
+
+        create.assert_awaited_once()
+        job.run.assert_awaited_once()
+        assert result == str(trial_dir.resolve())
+
     def test_setup_webserver_registers_aggregate_metrics_route(self):
         # Regression test: HarborAgent.setup_webserver() replaces (rather than extends)
         # SimpleResponsesAPIAgent.setup_webserver(), so /aggregate_metrics must be
@@ -490,6 +511,10 @@ class TestApp:
         assert config["environment"]["kwargs"] == {"network_block_all": False}
         assert config["agents"][0]["kwargs"]["max_turns"] == 3
         assert config["agents"][0]["kwargs"]["collect_rollout_details"] is True
+        assert config["n_concurrent_trials"] == 1
+        assert config["quiet"] is True
+        assert "orchestrator" not in config
+        assert config["datasets"][0]["path"] == "/tmp/test_dataset"
 
     def test_build_job_config_import_path_overrides_environment_type(self) -> None:
         pytest.importorskip("harbor")

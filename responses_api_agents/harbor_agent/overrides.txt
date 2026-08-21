@@ -1,0 +1,5 @@
+# Harbor 0.21.0 requires LiteLLM's OpenAI >=2.20 API, while NeMo Gym's
+# process-wide dependency is intentionally capped at OpenAI 2.7.2. This server
+# is isolated behind HTTP, so use Harbor's locked pair inside its own venv.
+litellm==1.93.0
+openai==2.24.0
