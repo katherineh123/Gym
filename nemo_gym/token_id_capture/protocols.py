@@ -45,6 +45,20 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from nemo_gym.token_id_capture.records import ParentResolutionStatus, TokenEntry
+from nemo_gym.token_id_capture.staging.records import CaptureLedgerCommit
+
+
+class TokenCaptureFrozenError(RuntimeError):
+    """Reject a write that arrived after its rollout's capture was frozen.
+
+    Freezing seals a rollout's capture verdict.
+    A model call can still be in flight at that point.
+    Its harness may have been killed at a timeout backstop.
+    The sink fails the late write so no successful write follows a freeze.
+    The caller drops the late record and must not mark the rollout incomplete.
+    The freeze already judged completeness from the durable intent ledger.
+    A post-freeze mark would mutate the consumed snapshot and break its retirement.
+    """
 
 
 @dataclass(frozen=True)
@@ -63,8 +77,13 @@ class LineageMatch:
     """Describe a uniquely verified parent from a shared lineage store."""
 
     model_call_id: str
+    # Empty for token-free external custody rows; populated for internal
+    # lineage rows (prefix injection) and legacy external rows.
     cumulative_token_ids: tuple[int, ...]
     digest: str
+    staging_chain: tuple[str, ...] = ()
+    prev_len: int = 0
+    chain_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -83,7 +102,7 @@ class LineageResolution:
 
 
 @runtime_checkable
-class LineageStore(Protocol):
+class LineageResolver(Protocol):
     """Resolve request-time lineage from entries committed by a token sink.
 
     This is a read-only view over sink-committed records.
@@ -121,6 +140,48 @@ class LineageStore(Protocol):
 
 
 @runtime_checkable
+class CaptureLedger(LineageResolver, Protocol):
+    """Store metadata for calls whose token data is staged externally.
+
+    ``record`` publishes a successfully staged call for parent resolution.
+    ``record_failure`` records a call that did not commit.
+    ``manifest`` returns both kinds of rows without including token arrays.
+    Records must be visible to every serving worker before ``record`` returns.
+    """
+
+    async def record(self, commit: CaptureLedgerCommit) -> None:
+        """Publish a completed call for later request-time resolution.
+
+        Repeating a model call ID with the same payload is a no-op.
+        Reusing a model call ID with different data must fail.
+        Return only after every serving worker can read the record.
+        """
+        ...
+
+    async def record_failure(self, rollout_id: str, model_call_id: str, reason: str) -> None:
+        """Record a call whose token capture did not complete.
+
+        Failure rows do not participate in parent resolution.
+        ``manifest`` includes them under ``failures`` so finalization rejects the rollout.
+        """
+        ...
+
+    async def manifest(self, rollout_id: str) -> dict:
+        """Return the rollout's token-free ledger as plain wire data.
+
+        The shape validates as ``staging.records.RolloutManifest``:
+        committed rows under ``records`` (each a ``CallRecord`` payload) and
+        poison rows under ``failures``.
+        Cumulative token IDs never appear in the manifest.
+        """
+        ...
+
+    async def has_rows(self, rollout_id: str) -> bool:
+        """Return whether any ledger row (committed or failed) exists."""
+        ...
+
+
+@runtime_checkable
 class TokenSink(Protocol):
     """Receive captured records through Gym's file store or a framework transport."""
 
@@ -136,7 +197,8 @@ class TokenSink(Protocol):
         Reusing a call id with a different payload must fail.
         A transport without compare-and-swap may delegate that conflict to the reader.
         A resolver must then treat conflicting committed payloads for one call id as zero candidates.
-        Writing after freeze must fail or bump the frozen version; see ``TokenSource.freeze``.
+        Writing after the rollout is frozen must fail with ``TokenCaptureFrozenError``;
+        see ``TokenSource.freeze``.
 
         This method may raise.
         The caller marks the rollout incomplete.
@@ -206,7 +268,7 @@ class TokenSource(Protocol):
 # Request-scoped sinks take precedence.
 _INSTALLED_SINK: TokenSink | None = None
 _INSTALLED_SOURCE: TokenSource | None = None
-_INSTALLED_LINEAGE_STORE: LineageStore | None = None
+_INSTALLED_LINEAGE_STORE: LineageResolver | None = None
 
 
 def install_token_sink(sink: TokenSink | None) -> None:
@@ -238,11 +300,11 @@ def installed_token_source() -> TokenSource | None:
     return _INSTALLED_SOURCE
 
 
-def install_lineage_store(store: LineageStore | None) -> None:
+def install_lineage_store(store: LineageResolver | None) -> None:
     """Set (or clear) the process-wide request-time lineage store."""
     global _INSTALLED_LINEAGE_STORE
     _INSTALLED_LINEAGE_STORE = store
 
 
-def installed_lineage_store() -> LineageStore | None:
+def installed_lineage_store() -> LineageResolver | None:
     return _INSTALLED_LINEAGE_STORE
