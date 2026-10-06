@@ -98,6 +98,7 @@ def build_variant(row: dict[str, Any], spec: dict[str, Any] | VariantSpec) -> di
     instructions = []
     for instruction in spec.instructions:
         resolved = instruction.model_dump(mode="json")
+        resolved["placement"] = instruction.placement.model_dump(exclude_none=True)
         resolved["instruction_text"] = resolve_tool_text(instruction.instruction_text, spec.tool_names)
         resolved["rubric"] = resolve_tool_text(instruction.rubric, spec.tool_names)
         instructions.append(resolved)

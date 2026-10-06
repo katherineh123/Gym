@@ -10,7 +10,12 @@ from typing import Any
 
 
 def model_request(
-    payload: dict[str, Any], *, tool_names: dict[str, str], system_text: str, system_prefix: str = ""
+    payload: dict[str, Any],
+    *,
+    tool_names: dict[str, str],
+    system_text: str,
+    system_prefix: str = "",
+    instructions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Apply actor-facing names to schemas/history without changing tool arguments or issue text."""
     result = deepcopy(payload)
@@ -24,7 +29,15 @@ def model_request(
     mapped = [tool_names.get(name, name) for name in available]
     if len(mapped) != len(set(mapped)):
         raise ValueError("tool alias collision with native/MCP tool")
+    descriptions = [item for item in instructions or [] if item["placement"]["surface"] == "tool_description"]
+    if tools and any(item["placement"]["tool"] not in available for item in descriptions):
+        raise ValueError("requested tool-description target unavailable in this native session")
     for function in functions:
+        target = [item for item in descriptions if item["placement"]["tool"] == function["name"]]
+        if target:
+            before = [item["instruction_text"] for item in target if item["placement"]["position"] == "start"]
+            after = [item["instruction_text"] for item in target if item["placement"]["position"] == "end"]
+            function["description"] = "\n\n".join(p for p in [*before, function.get("description", ""), *after] if p)
         function["name"] = tool_names.get(function["name"], function["name"])
     for message in result.get("messages", []):
         for call in message.get("tool_calls", []):

@@ -125,3 +125,23 @@ def test_existing_variant_or_conversation_cannot_be_silently_reinjected():
     source["responses_create_params"]["input"].append({"role": "assistant", "content": "old answer"})
     with pytest.raises(ValueError, match="fresh"):
         build(source, {})
+
+
+def test_tool_description_is_resolved_but_not_inserted_in_task_prompt():
+    original = row()
+    result = build(
+        original,
+        {
+            "tool_names": {"bash": "shell"},
+            "instructions": [
+                constraint(
+                    placement={"surface": "tool_description", "position": "end", "tool": "bash"},
+                    instruction_text="Explain every ${tool:bash} command.",
+                )
+            ],
+        },
+    )
+    assert result["responses_create_params"] == original["responses_create_params"]
+    assert result["task_variant"]["instructions"][0]["instruction_text"] == "Explain every shell command."
+    with pytest.raises(ValueError, match="tool"):
+        build(row(), {"instructions": [constraint(placement={"surface": "tool_description", "position": "end"})]})

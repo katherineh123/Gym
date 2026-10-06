@@ -114,6 +114,7 @@ class OpenCodeIFAgent(OpenCodeSandboxedAgent):
                 tool_names=state.variant["tool_names"],
                 system_text=state.system_text,
                 system_prefix=state.system_prefix,
+                instructions=state.variant["instructions"],
             )
         except (ValueError, KeyError, TypeError) as exc:
             state.error = type(exc).__name__

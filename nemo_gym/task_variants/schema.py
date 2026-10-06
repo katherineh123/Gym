@@ -34,8 +34,18 @@ class StrictModel(BaseModel):
 class Placement(StrictModel):
     """An initial instruction location; replay/tool-output placements are not accepted."""
 
-    surface: Literal["system_prompt", "user_prompt"]
+    surface: Literal["system_prompt", "user_prompt", "tool_description"]
     position: Literal["start", "end"] = "end"
+    tool: str | None = None
+
+    @model_validator(mode="after")
+    def valid_tool_target(self) -> "Placement":
+        if self.surface == "tool_description":
+            if self.tool not in TOOLS:
+                raise ValueError("tool_description requires a supported logical tool")
+        elif self.tool is not None:
+            raise ValueError("tool target is only valid for tool_description")
+        return self
 
 
 class Instruction(StrictModel):

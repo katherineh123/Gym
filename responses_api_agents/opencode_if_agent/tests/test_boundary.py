@@ -1,6 +1,53 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import json
+
+
+def test_system_start_is_before_native_prompt_and_end_after_it():
+    from responses_api_agents.opencode_if_agent.boundary import model_request
+
+    result = model_request(
+        {"messages": [{"role": "system", "content": "NATIVE"}]},
+        tool_names={},
+        system_text="AFTER",
+        system_prefix="BEFORE",
+    )
+    assert result["messages"][0]["content"] == "BEFORE\n\nNATIVE\n\nAFTER"
+
+
+def test_tool_description_instruction_does_not_change_arguments_or_dispatch_name():
+    from responses_api_agents.opencode_if_agent.boundary import model_request
+
+    payload = {
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "bash",
+                    "description": "Execute a command.",
+                    "parameters": {"type": "object"},
+                },
+            }
+        ]
+    }
+    result = model_request(
+        payload,
+        tool_names={"bash": "shell"},
+        system_text="",
+        instructions=[
+            {
+                "instruction_text": "Explain the purpose of each shell call.",
+                "placement": {"surface": "tool_description", "position": "end", "tool": "bash"},
+            }
+        ],
+    )
+    function = result["tools"][0]["function"]
+    assert function["name"] == "shell"
+    assert function["description"] == "Execute a command.\n\nExplain the purpose of each shell call."
+    assert function["parameters"] == {"type": "object"}
+    assert payload["tools"][0]["function"]["description"] == "Execute a command."
+
+
 from copy import deepcopy
 
 import pytest
