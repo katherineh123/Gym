@@ -1,0 +1,32 @@
+[
+  {"provenance": {"experiment": "native-baseline"}},
+  {
+    "seed": 7,
+    "tool_names": {"bash": "run_command"},
+    "instructions": [
+      {
+        "id": "plan-before-tools",
+        "instruction_text": "Before your first tool call, explain briefly what you intend to inspect.",
+        "placement": {"surface": "system_prompt", "position": "end"},
+        "rubric": "If there is a tool call, an accompanying or earlier assistant message must explain the intended inspection. Fail if absent. If no tool is called, mark not applicable.",
+        "taxonomy": ["IF-PLAN"]
+      },
+      {
+        "id": "final-marker",
+        "instruction_text": "End your final response with the word FINISH on its own line.",
+        "placement": {"surface": "user_prompt", "position": "end"},
+        "rubric": "The final assistant response must end with a line containing exactly FINISH. Ignore trailing whitespace. Missing final response is an error, not a pass.",
+        "taxonomy": ["IF-FORMAT"]
+      }
+    ],
+    "provenance": {"experiment": "combined-placement-and-alias"}
+  },
+  {
+    "prompt_family": {
+      "id": "concise-engineer",
+      "revision": "1",
+      "system": "You are a careful software engineer. Inspect the repository, implement the requested correction, and validate it with focused tests. Use the supplied tools; do not claim commands succeeded without evidence."
+    },
+    "provenance": {"experiment": "explicit-system-family"}
+  }
+]

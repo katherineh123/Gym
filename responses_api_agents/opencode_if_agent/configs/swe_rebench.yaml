@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+config_paths:
+  - responses_api_agents/opencode_if_agent/configs/opencode_if_agent.yaml
+  - resources_servers/swe_rebench/configs/swe_rebench.yaml
+
+opencode_if_agent:
+  responses_api_agents:
+    opencode_if_agent:
+      resources_server:
+        type: resources_servers
+        name: swe_rebench_resources_server
+      datasets: []
+
+swe_rebench_resources_server:
+  resources_servers:
+    swe_rebench:
+      allowed_agents: [opencode_sandboxed_agent, opencode_if_agent]
+
+swe_rebench_if_environment:
+  environment_servers:
+    legacy_agent:
+      entrypoint: app.py
+      agent_server:
+        type: responses_api_agents
+        name: opencode_if_agent

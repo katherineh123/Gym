@@ -14,7 +14,7 @@ from pydantic import Field, field_validator
 from nemo_gym.sandbox.agent_tools import sandbox_server_url
 from nemo_gym.server_utils import is_nemo_gym_fastapi_entrypoint
 from nemo_gym.server_utils import request as http_request
-from nemo_gym.task_variants.builder import content_text, digest
+from nemo_gym.task_variants.builder import actor_input_digest, content_text, digest
 from nemo_gym.task_variants.judge import JudgeConfig, RubricJudge
 from nemo_gym.task_variants.schema import VariantSpec
 from responses_api_agents.opencode_if_agent.boundary import model_request, native_response, rewrite_sse
@@ -34,8 +34,7 @@ def validate_variant(row: dict[str, Any]) -> dict[str, Any]:
     if variant.get("variant_id") != "variant_" + digest({k: v for k, v in variant.items() if k != "variant_id"}):
         raise ValueError("variant ID does not match its specification")
     VariantSpec.model_validate({key: variant[key] for key in VariantSpec.model_fields})
-    actor = [{"role": item["role"], "content": item["content"]} for item in row["responses_create_params"]["input"]]
-    if digest(actor) != variant["actor_input_sha256"]:
+    if actor_input_digest(row["responses_create_params"]["input"]) != variant["actor_input_sha256"]:
         raise ValueError("actor input changed after variant generation")
     return variant
 
@@ -63,6 +62,7 @@ class VariantRun:
     attempt_id: str
     variant: dict[str, Any]
     system_text: str
+    system_prefix: str = ""
     upstream_url: str = ""
     upstream_key: str = field(default="", repr=False)
     request_count: int = 0
@@ -75,6 +75,7 @@ class OpenCodeIFAgent(OpenCodeSandboxedAgent):
     """Reuse native execution/resource verification; vary only the actor/model handoff."""
 
     config: OpenCodeIFConfig
+    ray_enabled = False
 
     def model_post_init(self, context: Any, /) -> None:
         super().model_post_init(context)
@@ -109,7 +110,10 @@ class OpenCodeIFAgent(OpenCodeSandboxedAgent):
             raise HTTPException(404, "Unknown or completed variant attempt")
         try:
             outgoing = model_request(
-                await request.json(), tool_names=state.variant["tool_names"], system_text=state.system_text
+                await request.json(),
+                tool_names=state.variant["tool_names"],
+                system_text=state.system_text,
+                system_prefix=state.system_prefix,
             )
         except (ValueError, KeyError, TypeError) as exc:
             state.error = type(exc).__name__
@@ -162,6 +166,17 @@ class OpenCodeIFAgent(OpenCodeSandboxedAgent):
             variant=variant,
             system_text="\n\n".join(content_text(item.content) for item in systems),
         )
+        if variant["prompt_family"]["system"] is None:
+            prefix = "\n\n".join(
+                item["instruction_text"]
+                for item in variant["instructions"]
+                if item["placement"] == {"surface": "system_prompt", "position": "start"}
+            )
+            if prefix:
+                if not state.system_text.startswith(prefix):
+                    raise ValueError("system start placement does not match rendered input")
+                state.system_prefix = prefix
+                state.system_text = state.system_text[len(prefix) :].removeprefix("\n\n")
         self._variant_runs[state.attempt_id] = state
         request.state._ng_if_run = state
         try:

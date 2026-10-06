@@ -60,6 +60,22 @@ def test_tampered_rubric_is_rejected():
         validate_variant(source)
 
 
+def test_baseline_content_blocks_survive_request_model_normalization():
+    from responses_api_agents.opencode_if_agent.app import OpenCodeIFRunRequest, validate_variant
+
+    source = row()
+    source["responses_create_params"]["input"] = [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "Fix it."}],
+        }
+    ]
+    generated = build_variant(source, {})
+    parsed = OpenCodeIFRunRequest.model_validate(generated)
+    assert validate_variant(parsed.model_dump(mode="json"))["base_task_id"] == source["instance_id"]
+
+
 def test_multiple_workers_rejected_for_run_scoped_model_route():
     from responses_api_agents.opencode_if_agent.app import OpenCodeIFConfig
 

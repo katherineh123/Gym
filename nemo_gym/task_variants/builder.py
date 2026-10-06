@@ -54,6 +54,11 @@ def digest(value: object) -> str:
     ).hexdigest()
 
 
+def actor_input_digest(messages: list[dict[str, Any]]) -> str:
+    """Hash model-visible text, invariant to API message/content-block defaults."""
+    return digest([{"role": item["role"], "content": content_text(item["content"])} for item in messages])
+
+
 def build_variant(row: dict[str, Any], spec: dict[str, Any] | VariantSpec) -> dict[str, Any]:
     """Return a fresh runnable row and namespaced variant receipt; leave source untouched.
 
@@ -119,7 +124,7 @@ def build_variant(row: dict[str, Any], spec: dict[str, Any] | VariantSpec) -> di
         "base_sha256": digest(row),
         **spec.model_dump(mode="json"),
         "instructions": instructions,
-        "actor_input_sha256": digest(result["responses_create_params"]["input"]),
+        "actor_input_sha256": actor_input_digest(result["responses_create_params"]["input"]),
     }
     receipt["variant_id"] = "variant_" + digest(receipt)
     result["task_variant"] = receipt

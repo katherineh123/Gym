@@ -9,7 +9,9 @@ from copy import deepcopy
 from typing import Any
 
 
-def model_request(payload: dict[str, Any], *, tool_names: dict[str, str], system_text: str) -> dict[str, Any]:
+def model_request(
+    payload: dict[str, Any], *, tool_names: dict[str, str], system_text: str, system_prefix: str = ""
+) -> dict[str, Any]:
     """Apply actor-facing names to schemas/history without changing tool arguments or issue text."""
     result = deepcopy(payload)
     tools = result.get("tools", [])
@@ -42,13 +44,13 @@ def model_request(payload: dict[str, Any], *, tool_names: dict[str, str], system
             + "; ".join(f"use {alias} for the {native} tool" for native, alias in sorted(tool_names.items()))
             + ". Use the names in the supplied tool registry."
         )
-    if additions:
+    if additions or system_prefix:
         messages = result.setdefault("messages", [])
         suffix = "\n\n".join(additions)
         if messages and messages[0].get("role") == "system" and isinstance(messages[0].get("content"), str):
-            messages[0]["content"] += "\n\n" + suffix
+            messages[0]["content"] = "\n\n".join(p for p in (system_prefix, messages[0]["content"], suffix) if p)
         else:
-            messages.insert(0, {"role": "system", "content": suffix})
+            messages.insert(0, {"role": "system", "content": "\n\n".join(p for p in (system_prefix, suffix) if p)})
     return result
 
 

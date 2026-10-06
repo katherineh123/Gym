@@ -121,3 +121,16 @@ async def test_network_error_does_not_leak_credentials(monkeypatch):
     result = await module.RubricJudge(module.JudgeConfig(api_key="test-key")).grade(INSTRUCTIONS, EVIDENCE)
     assert result["status"] == "error"
     assert "test-key" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_insufficient_evidence_is_a_per_instruction_error(monkeypatch):
+    from nemo_gym.task_variants import judge as module
+
+    async def remote(*args, **kwargs):
+        return RemoteResponse(completion([judgment(status="error", rationale="Patch evidence unavailable.")]))
+
+    monkeypatch.setattr(module, "request", remote)
+    result = await module.RubricJudge(module.JudgeConfig(api_key="test-key")).grade(INSTRUCTIONS, EVIDENCE)
+    assert result["status"] == "error"
+    assert result["judgments"][0]["status"] == "error"
