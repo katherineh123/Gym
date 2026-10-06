@@ -63,6 +63,7 @@ class SWEIFVerifyResponse(swe.SWEBenchVerifyResponse):
 
 class SWEIFWrapper(swe.SWEBenchWrapper):
     config: SWEIFWrapperConfig
+    ray_enabled = True
 
     # ---- mid-task injection: tag the replayed tool message the instruction was appended to
     def _maybe_build_replay_messages(self, body: swe.NeMoGymResponseCreateParamsNonStreaming) -> Optional[str]:

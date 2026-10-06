@@ -33,6 +33,7 @@ DIRECT_RAY_COMPONENTS = {
 }
 
 INHERITED_RAY_DECLARATIONS = {
+    ("responses_api_agents/swe_if_agents/app.py", "SWEIFWrapper"): True,
     ("resources_servers/gpqa_diamond/app.py", "GPQADiamondResourcesServer"): False,
     ("resources_servers/legal_agent_bench/harbor_bridge.py", "LegalAgentBenchHarborBridge"): True,
     ("responses_api_models/genrm_model/app.py", "GenRMModel"): True,
