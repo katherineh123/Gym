@@ -75,6 +75,8 @@ def native_response(payload: dict[str, Any], names: dict[str, str]) -> dict[str,
         for call in choice.get("message", {}).get("tool_calls", []):
             function = call.get("function", {})
             if "name" in function:
+                if function["name"] in names and function["name"] not in inverse:
+                    raise ValueError("model emitted a hidden native tool name instead of its alias")
                 function["name"] = inverse.get(function["name"], function["name"])
     return result
 
@@ -92,6 +94,8 @@ class ToolStreamRewriter:
         name = call["function"]["name"]
         if not name:
             raise ValueError("streamed tool arguments arrived without a function name")
+        if name in self.inverse.values() and name not in self.inverse:
+            raise ValueError("model emitted a hidden native tool name instead of its alias")
         call["function"]["name"] = self.inverse.get(name, name)
         self.started.add(key)
         return call

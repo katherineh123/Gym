@@ -48,6 +48,35 @@ def test_tool_description_instruction_does_not_change_arguments_or_dispatch_name
     assert payload["tools"][0]["function"]["description"] == "Execute a command."
 
 
+def test_model_cannot_bypass_an_alias_by_emitting_the_hidden_native_name():
+    import pytest
+
+    from responses_api_agents.opencode_if_agent.boundary import ToolStreamRewriter, native_response
+
+    with pytest.raises(ValueError, match="hidden native"):
+        native_response(
+            {"choices": [{"message": {"tool_calls": [{"function": {"name": "bash"}}]}}]}, {"bash": "shell"}
+        )
+    with pytest.raises(ValueError, match="hidden native"):
+        ToolStreamRewriter({"bash": "shell"}).feed(
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "function": {"name": "bash", "arguments": "{}"},
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+        )
+
+
 from copy import deepcopy
 
 import pytest

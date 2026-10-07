@@ -139,3 +139,179 @@ async def test_failed_native_run_does_not_leave_an_active_model_route(monkeypatc
     with pytest.raises(RuntimeError, match="sandbox unavailable"):
         await agent.run(make_request(body), body)
     assert agent._variant_runs == {}
+
+
+@pytest.mark.asyncio
+async def test_export_uses_model_visible_tool_names_and_incomplete_delegation_is_not_graded(monkeypatch):
+    from pydantic import BaseModel
+
+    from responses_api_agents.opencode_if_agent import app as module
+
+    class ToolCall(BaseModel):
+        type: str = "function_call"
+        name: str
+        arguments: str = "{}"
+
+    async def native_run(self, request, body):
+        state = request.state._ng_if_run
+        state.request_count = 1
+        state.first_request = {"messages": [], "tools": []}
+        return SimpleNamespace(
+            reward=0,
+            opencode_failed=False,
+            model_patch="",
+            ng_trajectory=None,
+            response=SimpleNamespace(output=[ToolCall(name="task"), ToolCall(name="bash")]),
+        )
+
+    monkeypatch.setattr(module.OpenCodeSandboxedAgent, "run", native_run)
+    agent = module.OpenCodeIFAgent(config=config(), server_client=client())
+    body = module.OpenCodeIFRunRequest.model_validate(
+        build_variant(
+            row(),
+            {
+                "tool_names": {"bash": "shell"},
+                "instructions": [constraint()],
+            },
+        )
+    )
+    result = await agent.run(make_request(body), body)
+    assert result.response.output[-1].name == "shell"
+    assert result.if_result["error"] == "incomplete_rollout_evidence"
+
+
+@pytest.mark.asyncio
+async def test_proxy_ignores_auxiliary_first_request_and_isolates_concurrent_attempts(monkeypatch):
+    import asyncio
+
+    from responses_api_agents.opencode_if_agent import app as module
+
+    forwarded = []
+
+    async def http(method, url, **kwargs):
+        forwarded.append((url, kwargs["json"], kwargs["headers"]))
+
+        async def response_json():
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+        return SimpleNamespace(raise_for_status=lambda: None, release=lambda: None, json=response_json)
+
+    monkeypatch.setattr(module, "http_request", http)
+    agent = module.OpenCodeIFAgent(config=config(), server_client=client())
+    states = [
+        module.VariantRun(
+            str(i), {"tool_names": {}, "instructions": []}, f"ONLY_{i}", upstream_url=f"http://upstream/{i}"
+        )
+        for i in range(2)
+    ]
+    agent._variant_runs.update({state.attempt_id: state for state in states})
+
+    def req(payload):
+        async def body():
+            return payload
+
+        return SimpleNamespace(
+            json=body,
+            cookies={},
+            headers={
+                "x-session-id": "native-session",
+                "x-opencode-assistant-message-id": "native-message",
+                "authorization": "DO-NOT-FORWARD",
+            },
+        )
+
+    await agent.variant_chat_completions(req({"messages": [{"role": "system", "content": "Generate a title"}]}), "0")
+    assert states[0].first_request is None
+    payload = {
+        "messages": [{"role": "user", "content": "Fix it"}],
+        "tools": [
+            {"type": "function", "function": {"name": "bash", "parameters": {}}},
+        ],
+    }
+    await asyncio.gather(*(agent.variant_chat_completions(req(payload), state.attempt_id) for state in states))
+    for index, state in enumerate(states):
+        text = json.dumps(state.first_request)
+        assert f"ONLY_{index}" in text
+        assert f"ONLY_{1 - index}" not in text
+    assert forwarded[-1][2]["x-session-id"] == "native-session"
+    assert forwarded[-1][2]["x-opencode-assistant-message-id"] == "native-message"
+    assert "DO-NOT-FORWARD" not in json.dumps(forwarded[-1][2])
+
+
+def test_if_agent_declares_native_assistant_message_correlation_header():
+    from responses_api_agents import opencode_if_agent, opencode_sandboxed_agent
+
+    assert opencode_if_agent._assistant_message_header == opencode_sandboxed_agent._assistant_message_header
+
+
+@pytest.mark.asyncio
+async def test_multi_block_baseline_is_normalized_for_native_execution(monkeypatch):
+    from responses_api_agents.opencode_if_agent import app as module
+
+    async def native_run(self, request, body):
+        assert body.responses_create_params.input[0].content == "First\nSecond"
+        return SimpleNamespace(reward=0, opencode_failed=False, response=SimpleNamespace(output=[]))
+
+    source = row()
+    source["responses_create_params"]["input"][0]["content"] = [
+        {"type": "input_text", "text": "First"},
+        {"type": "input_text", "text": "Second"},
+    ]
+    body = module.OpenCodeIFRunRequest.model_validate(build_variant(source, {}))
+    monkeypatch.setattr(module.OpenCodeSandboxedAgent, "run", native_run)
+    agent = module.OpenCodeIFAgent(config=config(), server_client=client())
+    await agent.run(make_request(body), body)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("child_answer", [None, [{"type": "function_call", "name": "bash", "arguments": "{}"}]])
+async def test_child_evidence_is_attributed_without_reasoning_and_gaps_fail_closed(monkeypatch, child_answer):
+    from pydantic import BaseModel
+
+    from responses_api_agents.opencode_if_agent import app as module
+
+    class ToolCall(BaseModel):
+        type: str = "function_call"
+        name: str = "task"
+
+    async def native_run(self, request, body):
+        state = request.state._ng_if_run
+        state.request_count = 2
+        state.first_request = {"messages": [], "tools": []}
+        return SimpleNamespace(
+            reward=0,
+            opencode_failed=False,
+            response=SimpleNamespace(output=[ToolCall()]),
+            ng_trajectory=SimpleNamespace(
+                gaps=[],
+                turns=[
+                    SimpleNamespace(
+                        invocation_id="root", turn_no=1, answer=[{"type": "function_call", "name": "task"}]
+                    ),
+                    SimpleNamespace(
+                        invocation_id="child", turn_no=1, answer=child_answer, reasoning_content="PRIVATE"
+                    ),
+                ],
+            ),
+        )
+
+    async def grade(instructions, evidence):
+        if child_answer is None:
+            assert not evidence["complete"]
+        else:
+            assert evidence["complete"]
+            assert evidence["turns"][1] == {
+                "invocation_id": "child",
+                "turn_no": 1,
+                "answer": [
+                    {"type": "function_call", "name": "shell", "arguments": "{}"},
+                ],
+            }
+        assert "PRIVATE" not in json.dumps(evidence)
+        return {"status": "completed"}
+
+    monkeypatch.setattr(module.OpenCodeSandboxedAgent, "run", native_run)
+    agent = module.OpenCodeIFAgent(config=config(), server_client=client())
+    monkeypatch.setattr(agent._judge, "grade", grade)
+    body = module.OpenCodeIFRunRequest.model_validate(build_variant(row(), {"tool_names": {"bash": "shell"}}))
+    await agent.run(make_request(body), body)

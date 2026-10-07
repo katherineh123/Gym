@@ -86,8 +86,17 @@ or colliding aliases fail explicitly. No rubric or golden patch enters the actor
   imposed; downstream training must choose its reward policy explicitly.
 - `task_variant` freezes the source digest, choices, rendered-input digest, taxonomy,
   rubrics and stable variant ID. `variant_receipt` adds an attempt ID, OpenCode version,
-  the actual first model request, and hashes/count of subsequent requests. Receipts
+  the actual first tool-bearing actor request (not an auxiliary title request), and
+  hashes/count of all model requests. Receipts
   are private rollout artifacts; they contain task text/tool schemas, not API keys.
+- Exported response/trajectory tool names use model-visible aliases. Raw OpenCode
+  logs and observation artifacts retain native names. Session/assistant-message
+  correlation headers are forwarded to preserve Gym's model-call attribution.
+- Delegated `task` calls require complete, gap-free child-session trajectory evidence
+  for IF judging; otherwise IF returns an error rather than overlooking child actions.
+  Upstream observation capture currently needs `python3` in the task image. Root-only
+  rollouts can still be graded from their native export when optional telemetry is
+  unavailable. Keep this distinction when selecting images or auditing SFT data.
 - The judge uses `https://inference-api.nvidia.com/v1/chat/completions` with
   `nvidia/zai-org/glm-5.3`. Endpoint/model/token budget/concurrency can be overridden
   under `judge`. It is a hosted model, not a locally deployed GPU judge.

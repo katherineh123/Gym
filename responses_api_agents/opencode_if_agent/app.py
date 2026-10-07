@@ -69,6 +69,7 @@ class VariantRun:
     first_request: dict[str, Any] | None = None
     request_sha256: list[str] = field(default_factory=list)
     error: str | None = None
+    actor_systems: set[str] = field(default_factory=set)
 
 
 class OpenCodeIFAgent(OpenCodeSandboxedAgent):
@@ -109,27 +110,44 @@ class OpenCodeIFAgent(OpenCodeSandboxedAgent):
         if state is None or not state.upstream_url:
             raise HTTPException(404, "Unknown or completed variant attempt")
         try:
-            outgoing = model_request(
-                await request.json(),
-                tool_names=state.variant["tool_names"],
-                system_text=state.system_text,
-                system_prefix=state.system_prefix,
-                instructions=state.variant["instructions"],
+            payload = await request.json()
+            system_id = digest(
+                [item for item in payload.get("messages", []) if item.get("role") in {"system", "developer"}]
+            )
+            actor_request = bool(payload.get("tools")) or system_id in state.actor_systems
+            if payload.get("tools"):
+                state.actor_systems.add(system_id)
+            # Title/summary requests have different system messages and no registry.
+            # Do not inject IF into auxiliary agents or use them as actor evidence.
+            outgoing = (
+                model_request(
+                    payload,
+                    tool_names=state.variant["tool_names"],
+                    system_text=state.system_text,
+                    system_prefix=state.system_prefix,
+                    instructions=state.variant["instructions"],
+                )
+                if actor_request
+                else payload
             )
         except (ValueError, KeyError, TypeError) as exc:
             state.error = type(exc).__name__
             raise HTTPException(422, "Invalid variant model request or unavailable tool alias") from exc
         state.request_count += 1
         state.request_sha256.append(digest(outgoing))
-        if state.first_request is None:
+        if state.first_request is None and payload.get("tools"):
             state.first_request = outgoing
         response = None
         try:
+            headers = {"Authorization": f"Bearer {state.upstream_key}"}
+            for name in ("x-session-id", "x-opencode-assistant-message-id"):
+                if name in request.headers:
+                    headers[name] = request.headers[name]
             response = await http_request(
                 "POST",
                 state.upstream_url.rstrip("/") + "/chat/completions",
                 json=outgoing,
-                headers={"Authorization": f"Bearer {state.upstream_key}"},
+                headers=headers,
                 cookies=request.cookies,
                 timeout=ClientTimeout(total=self.config.sandbox_timeout),
                 _max_num_tries=1,
@@ -161,6 +179,8 @@ class OpenCodeIFAgent(OpenCodeSandboxedAgent):
         variant = validate_variant(body.model_dump(mode="json"))
         if body.responses_create_params.instructions:
             raise ValueError("put system text in input messages, not the unsupported instructions parameter")
+        for message in body.responses_create_params.input:
+            message.content = content_text(message.model_dump(mode="json")["content"])
         systems = [item for item in body.responses_create_params.input if item.role == "system"]
         state = VariantRun(
             attempt_id=uuid4().hex,
@@ -182,6 +202,7 @@ class OpenCodeIFAgent(OpenCodeSandboxedAgent):
         request.state._ng_if_run = state
         try:
             result = await super().run(request, body)
+            delegated = any(item.type == "function_call" and item.name == "task" for item in result.response.output)
             visible_output = []
             for item in result.response.output:
                 value = item.model_dump(mode="json")
@@ -189,13 +210,39 @@ class OpenCodeIFAgent(OpenCodeSandboxedAgent):
                     continue
                 if value.get("type") == "function_call":
                     value["name"] = variant["tool_names"].get(value["name"], value["name"])
+                    # Verification already consumed native names. Export actor-facing
+                    # names too, so SFT output agrees with its model-visible registry.
+                    item.name = value["name"]
                 visible_output.append(value)
+            trajectory = getattr(result, "ng_trajectory", None)
+            turns = []
+            turns_complete = True
+            if trajectory is not None:
+                for turn in trajectory.turns:
+                    if not isinstance(turn.answer, list) or any(not isinstance(item, dict) for item in turn.answer):
+                        turns_complete = False
+                        continue
+                    for item in turn.answer:
+                        if item.get("type") == "function_call":
+                            item["name"] = variant["tool_names"].get(item["name"], item["name"])
+                    turns.append({"invocation_id": turn.invocation_id, "turn_no": turn.turn_no, "answer": turn.answer})
+            delegation_complete = not delegated or bool(
+                trajectory
+                and not trajectory.gaps
+                and turns_complete
+                and len({turn["invocation_id"] for turn in turns}) >= 2
+            )
             evidence = {
-                "complete": state.request_count > 0 and not state.error and not result.opencode_failed,
+                "complete": state.first_request is not None
+                and not state.error
+                and not result.opencode_failed
+                and delegation_complete,
                 "initial_messages": (state.first_request or {}).get("messages", []),
                 "tools": (state.first_request or {}).get("tools", []),
                 "messages": visible_output,
                 "model_patch": getattr(result, "model_patch", None),
+                # Root transcript includes tool results; turns also expose child actions.
+                "turns": turns if delegated else [],
             }
             result.if_result = await self._judge.grade(variant["instructions"], evidence)
             result.variant_receipt = {
@@ -204,6 +251,8 @@ class OpenCodeIFAgent(OpenCodeSandboxedAgent):
                 "attempt_id": state.attempt_id,
                 "harness": "opencode",
                 "opencode_version": self.config.opencode_version,
+                "output_tool_names": "model_visible",
+                "delegation_evidence_complete": delegation_complete,
                 "model_boundary": {
                     "first_request": state.first_request,
                     "request_count": state.request_count,
