@@ -107,3 +107,16 @@ def test_continuations_keep_their_phase_instead_of_becoming_fresh():
     result = migrate_item(old)
     assert result["source_phase"] == "interject"
     assert "continuation" in result["native_blockers"]
+
+
+def test_migration_prefers_literal_placement_over_checker_paraphrase():
+    from nemo_gym.task_variants.migrate_charlie import migrate_item
+
+    old = legacy_item()
+    surface = old["materialization"]["surfaces"]["system_prompt"]
+    surface["placements"] = {"c1": ["Keep shell narration under 80 characters."]}
+    surface["checks"]["faithfulness"]["per_constraint"][0]["sentences"] = ["Use fewer than eighty characters."]
+    assert migrate_item(old)["instructions"][0]["instruction_text"] == "Keep shell narration under 80 characters."
+    old["row_metadata"]["system_prompt_template_text"] = "No constraint here."
+    with pytest.raises(ValueError, match="displayed"):
+        migrate_item(old)

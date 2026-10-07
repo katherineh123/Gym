@@ -19,15 +19,31 @@ from nemo_gym.task_variants.builder import digest
 def _displayed_text(item: dict[str, Any], constraint: dict[str, Any]) -> tuple[str, str]:
     short_id = constraint["id"].rsplit("#", 1)[-1]
     surface = item.get("materialization", {}).get("surfaces", {}).get(constraint["surface"], {})
+    metadata_key = {
+        "system_prompt": "system_prompt_template_text",
+        "problem_statement": "user_prompt_template_text",
+        "user_turn": "interjection_user_turn",
+        "tool_output": "replay_observation_suffix_text",
+    }.get(constraint["surface"])
+    actor_text = item.get("row_metadata", {}).get(metadata_key, "")
+    normalized = " ".join(actor_text.split())
+
+    def displayed(parts: object) -> bool:
+        return (
+            isinstance(parts, list)
+            and bool(parts)
+            and all(isinstance(part, str) and part.strip() and " ".join(part.split()) in normalized for part in parts)
+        )
+
+    # Checker quotations occasionally paraphrase. The saved placement is primary
+    # evidence; require every fragment to occur on the actual rendered surface.
+    block = surface.get("placements", {}).get(short_id)
+    if displayed(block):
+        return "\n".join(block), "materialization.placements.verified_on_surface"
     checks = surface.get("checks", {}).get("faithfulness", {}).get("per_constraint", [])
     sentences = next((entry.get("sentences", []) for entry in checks if entry["id"] == short_id), [])
-    if sentences:
-        return "\n".join(sentences), "materialization.faithfulness.sentences"
-    # Some historical checks lack per-constraint sentences; preserve the exact saved
-    # placement block (which may cover several constraints), never invent a paraphrase.
-    block = surface.get("placements", {}).get(short_id)
-    if isinstance(block, list) and block:
-        return "\n".join(block), "materialization.placements.shared_block"
+    if displayed(sentences):
+        return "\n".join(sentences), "materialization.faithfulness.verified_on_surface"
     raise ValueError(f"missing exact displayed wording for {constraint['id']}")
 
 

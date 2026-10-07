@@ -68,7 +68,8 @@ Prompt families can override `system` and/or `user`. User replacement requires
 explicit `task_rules`, a `problem_statement` in the base row, and `${issue}` plus
 `${rules}` placeholders: existing templated prompts are never heuristically stripped.
 Other supported placeholders are `${workdir}` and `${tool:bash}` (and other native
-logical tools). Templates are plain text, not executable Jinja. Replacing the
+logical tools). `${workdir}` requires an explicit base-row workdir; no missing path
+is silently substituted. Templates are plain text, not executable Jinja. Replacing the
 system family uses OpenCode's native build-agent prompt setting; OpenCode retains
 its environment/reminder handling. With no override, the native prompt is retained.
 
@@ -76,6 +77,11 @@ Tool aliases are applied to model-visible schemas, tool history and tool choices
 then reversed in the response before native dispatch, including streamed tool names.
 Arguments, tool outputs and arbitrary issue/source text are not rewritten. Unsupported
 or colliding aliases fail explicitly. No rubric or golden patch enters the actor prompt.
+
+Validation catches structural/profile incompatibilities, not every semantic conflict
+between natural-language instructions. Review authored IF constraints against the
+task's rules before collecting data; deliberate instruction-hierarchy conflict
+experiments need their own explicitly designed rubrics.
 
 ## Results and limits
 

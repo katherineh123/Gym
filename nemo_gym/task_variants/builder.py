@@ -42,6 +42,8 @@ def _render(template: str, context: dict[str, str], names: dict[str, str]) -> st
     def replace(match: re.Match[str]) -> str:
         if match[1] not in context:
             raise ValueError(f"unknown prompt placeholder: {match[1]}")
+        if match[1] == "workdir" and not context["workdir"]:
+            raise ValueError("${workdir} requires an explicit native base-row workdir")
         return context[match[1]]
 
     return re.sub(r"\$\{([^}]+)\}", replace, template)

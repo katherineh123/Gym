@@ -308,7 +308,10 @@ class TestShippedSchemas:
                 allowed = (
                     root in sys.stdlib_module_names
                     or module.startswith(self.ALLOWED_IMPORT_PREFIXES)
-                    or (module.startswith("resources_servers.") and module.endswith(".task_data"))
+                    or (
+                        module.startswith(("resources_servers.", "responses_api_agents."))
+                        and module.endswith(".task_data")
+                    )
                 )
                 assert allowed, (
                     f"{schema_file}: import of {module!r} is not allowed in task_data.py "

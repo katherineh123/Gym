@@ -145,3 +145,10 @@ def test_tool_description_is_resolved_but_not_inserted_in_task_prompt():
     assert result["task_variant"]["instructions"][0]["instruction_text"] == "Explain every shell command."
     with pytest.raises(ValueError, match="tool"):
         build(row(), {"instructions": [constraint(placement={"surface": "tool_description", "position": "end"})]})
+
+
+def test_workdir_template_requires_an_explicit_native_workdir():
+    source = row()
+    source.pop("workdir")
+    with pytest.raises(ValueError, match="workdir"):
+        build(source, {"prompt_family": {"system": "Work in ${workdir}."}})
