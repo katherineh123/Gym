@@ -1,0 +1,181 @@
+# Agentic IF. The environment server runs each episode; this resources server validates its row and grades the session.
+config_paths:
+  - resources_servers/scale_swe/configs/scale_swe.yaml
+  - resources_servers/terminal_bench_2_1/configs/terminal_bench_2_1.yaml
+
+environment_server_routes:
+  "agentic_if:example": agentic_if_environment
+  "agentic_if:instruction-following": agentic_if_environment
+
+policy_model:
+  responses_api_models:
+    vllm_model:
+      entrypoint: app.py
+      base_url: ${policy_base_url}
+      api_key: ${policy_api_key}
+      model: ${policy_model_name}
+      uses_reasoning_parser: ${oc.select:policy_uses_reasoning_parser,true}
+      return_token_id_information: false
+      # Report context overflows to the harness as errors, not as empty replies.
+      propagate_context_overflow_errors: true
+
+agentic_if_resources:
+  resources_servers:
+    agentic_if:
+      entrypoint: app.py
+      domain: instruction_following
+      verified: false
+      description: Validates sealed agentic IF rows and grades the sessions their environment server records.
+      value: Measure whether coding agents follow instructions while completing real repository and terminal tasks.
+      # The judge's prompts and model settings ship in if_grading/data/judge.yaml; this model server answers them.
+      judge_model_server:
+        type: responses_api_models
+        name: agentic_if_judge_model
+      datasets:
+        - name: example
+          type: example
+          jsonl_fpath: resources_servers/agentic_if/data/example.jsonl
+          taskset: agentic_if:example
+          num_repeats: 1
+          # Its Scale-SWE rows have no declared license, as in scale_swe.
+          license: TBD
+
+# The judge: the model if_grading/data/judge.yaml names, at an OpenAI-compatible Responses endpoint. Set judge_api_key,
+# and judge_base_url for another endpoint, in env.yaml or as overrides.
+agentic_if_judge_model:
+  responses_api_models:
+    openai_model:
+      entrypoint: app.py
+      openai_base_url: ${oc.select:judge_base_url,https://inference-api.nvidia.com/v1}
+      openai_api_key: ${oc.select:judge_api_key,null}
+      openai_model: nvidia/zai-org/glm-5.3
+      # Each attempt of a judge call; a failed call is retried by the model server and then by the grader.
+      upstream_request_timeout_seconds: 600
+
+agentic_if_environment:
+  environment_servers:
+    agentic_if:
+      entrypoint: app.py
+      model_server:
+        type: responses_api_models
+        name: policy_model
+      resources_server:
+        type: resources_servers
+        name: agentic_if_resources
+      task_resources:
+        swe:
+          server:
+            type: resources_servers
+            name: scale_swe_resources_server
+        tb21:
+          server:
+            type: resources_servers
+            name: terminal_bench_2_1_resources_server
+      opencode:
+        version: 1.17.11
+        # bin/opencode of the npm package opencode-linux-x64@1.17.11; no other file runs.
+        binary_sha256: 0254a429cd0e6cf0ba53fc01672cf98e4a8dc728f7fa94be88f1e4b3645e6ded  # pragma: allowlist secret
+        # A host copy to upload into each task sandbox; unset, each sandbox downloads that package and checks it.
+        binary_path: ${oc.env:AGENTIC_IF_OPENCODE_BINARY,null}
+        # OpenCode's native step limit (none); sandbox_timeout bounds the harness run.
+        max_turns: null
+        context_limit: 131072
+        # The permission policy of responses_api_agents/opencode_sandboxed_agent/configs/opencode_sandboxed_agent.yaml,
+        # rule for rule (a test keeps them equal): native OpenCode syntax, later matches win.
+        permission:
+          "*": allow
+          webfetch: deny
+          websearch: deny
+          skill: deny
+          edit:
+            "**": allow
+          bash:
+            "*": allow
+            # process termination
+            "*killall*": deny
+            "*pkill*": deny
+            "*kill -1*": deny
+            "*kill 0*": deny
+            # filesystem destruction
+            "*rm -rf /": deny
+            "*rm -rf /*": deny
+            "*rm -rf /bin*": deny
+            "*rm -rf /usr*": deny
+            "*rm -rf /etc*": deny
+            "*rm -rf /var*": deny
+            "*rm -rf /home*": deny
+            "*rm -rf /root*": deny
+            "*rm -rf /opt*": deny
+            "*rm -rf /lib*": deny
+            "*rm -rf /lib64*": deny
+            "*rm -rf /sbin*": deny
+            "*rm -rf /boot*": deny
+            "*rm -rf /dev*": deny
+            "*rm -rf /proc*": deny
+            "*rm -rf /sys*": deny
+            # disk devices
+            "dd *of=/dev/sd*": deny
+            "dd *of=/dev/nvme*": deny
+            "dd *of=/dev/hd*": deny
+            "dd *of=/dev/null*": deny
+            # git network
+            "*git fetch*": deny
+            "*git pull*": deny
+            "*git clone*": deny
+            "*git ls-remote*": deny
+            "*git remote add*": deny
+            "*git remote set-url*": deny
+            "*git remote set-head*": deny
+            "*git remote update*": deny
+            "*git remote rename*": deny
+            "*git remote set-branches*": deny
+            "*git submodule add*": deny
+            "*git submodule update*": deny
+            "*git submodule sync*": deny
+            "*git submodule init*": deny
+            "*git archive*--remote*": deny
+            "*git *://*": deny
+            "*git *@*:*": deny
+            # git history mining
+            "*git log*--all*": deny
+            "*git log*--branches*": deny
+            "*git log*--remotes*": deny
+            "*git log*--walk-reflogs*": deny
+            "*git log*--grep*": deny
+            "*git rev-list*--all*": deny
+            "*git rev-list*--branches*": deny
+            "*git rev-list*--remotes*": deny
+            "*git rev-list*--grep*": deny
+            "*git shortlog*--all*": deny
+            "*git reflog*": deny
+            "*git cat-file*": deny
+            "*git fsck*": deny
+            "*git verify-pack*": deny
+            "*git unpack-objects*": deny
+            "*git cherry*": deny
+            "*git show*": deny
+            "*git merge-base*--is-ancestor*": deny
+            "*git branch*--contains*": deny
+            "*git tag*--contains*": deny
+            "*git for-each-ref*--contains*": deny
+            # git internals (substring match on path)
+            "*.git/logs*": deny
+            "*.git/packed-refs*": deny
+            "*.git/ORIG_HEAD*": deny
+            "*.git/FETCH_HEAD*": deny
+            "*.git/refs*": deny
+            # online lookups
+            "*curl *github.com*": deny
+            "*wget *github.com*": deny
+            "*curl *githubusercontent.com*": deny
+            "*wget *githubusercontent.com*": deny
+            "*curl *github.io*": deny
+            "*wget *github.io*": deny
+      # Per-attempt evidence and receipts: rollout data, keep it private.
+      artifacts_dir: ${oc.select:agentic_if_artifacts_dir,results/agentic_if}
+      sandbox_timeout: 10800
+      # The 3 h harness budget plus 2 h for sandbox start, task verification, cleanup and IF grading.
+      default_episode_timeout_seconds: 18000
+      max_concurrent_episodes: 8
+      queue_timeout_seconds: 86400
+      cleanup_timeout_seconds: 120

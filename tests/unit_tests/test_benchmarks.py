@@ -1188,6 +1188,21 @@ class TestNativeTasksetBenchmark:
         with pytest.raises(EnvironmentValidationError, match="route to different agents"):
             _resolve_dataset_owner_agent(config, "resources")
 
+    def test_agentless_route_resolves_to_no_agent_and_keeps_its_checks(self, config):
+        from nemo_gym.config_types import ConfigError
+        from nemo_gym.global_config import resolve_dataset_agent
+
+        server = config.environment.environment_servers.single_agent_turn
+        del server["agent_server"]
+        assert resolve_dataset_agent(config, "resources", taskset="swe:test") is None
+        # A dataset declared by an agent must still route to that agent.
+        with pytest.raises(ConfigError, match="must route to its declaring agent"):
+            resolve_dataset_agent(config, "agent", taskset="swe:test")
+        # The route must still bind the resources server that declares the dataset.
+        server.resources_server.name = "other"
+        with pytest.raises(ConfigError, match="must bind declaring resources server"):
+            resolve_dataset_agent(config, "resources", taskset="swe:test")
+
     def test_route_must_match_declaring_resources(self, config):
         from nemo_gym.config_types import ConfigError
         from nemo_gym.global_config import resolve_dataset_agent

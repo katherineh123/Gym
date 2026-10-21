@@ -183,7 +183,8 @@ def list_benchmarks() -> None:
 
     for name, bench in benchmarks.items():
         domain, description = metadata[name]
-        # A taskset routed to a server that fronts several agents has no single agent; name the server instead.
+        # A taskset routed to a server that fronts several agents, or that runs its harness itself, has no single
+        # agent; name the server instead.
         agent = bench.agent_name or f"{bench.environment_server} (environment server)"
         table.add_row(name, domain or "", description or "", agent, str(bench.num_repeats))
 

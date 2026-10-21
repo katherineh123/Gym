@@ -44,7 +44,8 @@ MANIFEST_FILENAME = "manifest.yaml"
 class BenchmarkConfig(BaseModel):
     name: str  # this is a dataset name, not the config name (they are usually the same)
     path: Path
-    # None when the dataset routes by taskset to an Environment Server that fronts several agents.
+    # None when the dataset routes by taskset to an Environment Server without a single agent: one that fronts
+    # several agents, or one that runs its harness itself.
     agent_name: Optional[str]
     num_repeats: int
     dataset: BenchmarkDatasetConfig | DatasetConfig

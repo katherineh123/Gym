@@ -28,6 +28,7 @@ Set ``is_verifying_golden_patch: true`` to grade the dataset's own patch instead
 the dataset-health check: a row whose golden patch does not resolve is a broken row.
 """
 
+import asyncio
 import shlex
 import sys
 from pathlib import Path
@@ -35,8 +36,8 @@ from time import time
 from traceback import format_exc
 from typing import Any
 
-from fastapi import Request
-from pydantic import BaseModel, ConfigDict
+from fastapi import HTTPException, Request
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from nemo_gym.base_resources_server import (
     BaseResourcesServerConfig,
@@ -44,10 +45,16 @@ from nemo_gym.base_resources_server import (
     BaseSeedSessionResponse,
     BaseVerifyRequest,
     BaseVerifyResponse,
+    ResourcesCloseSessionRequest,
+    ResourcesCloseSessionResponse,
+    ResourcesSeedSessionRequest,
+    ResourcesSeedSessionResponse,
     SimpleResourcesServer,
 )
+from nemo_gym.episode_types import EpisodeId
 from nemo_gym.global_config import get_global_config_dict
 from nemo_gym.sandbox import AsyncSandbox, SandboxResources, SandboxSpec
+from nemo_gym.sandbox.access import DirectSandboxConnection, SandboxAccess
 from nemo_gym.sandbox.config import resolve_provider_config, resolve_provider_metadata
 from nemo_gym.sandbox.utils import cpu_cap_env
 from nemo_gym.server_utils import SESSION_ID_KEY, is_nemo_gym_fastapi_entrypoint
@@ -148,6 +155,10 @@ class ScaleSWEResourcesServer(SimpleResourcesServer):
         self._session_id_to_sandbox: dict[str, AsyncSandbox] = {}
         self._session_id_to_pristine_untracked: dict[str, frozenset[str]] = {}
         self._session_id_to_base_commit: dict[str, str] = {}
+        # Environment Server sessions, keyed by resources_session_id: the seed request and reply, and closed sessions.
+        self._resources_sessions: dict[str, tuple[ResourcesSeedSessionRequest, ResourcesSeedSessionResponse]] = {}
+        self._closed_sessions: dict[str, EpisodeId] = {}
+        self._session_locks: dict[str, asyncio.Lock] = {}
 
     def _inputs(self, body: ScaleSWEInstanceRequest, patch: str) -> VerificationInputs:
         return VerificationInputs(
@@ -251,19 +262,65 @@ class ScaleSWEResourcesServer(SimpleResourcesServer):
         finally:
             await self._stop_sandbox(original_sandbox)
 
-    async def seed_session(self, request: Request, body: ScaleSWESeedSessionRequest) -> ScaleSWESeedSessionResponse:
+    async def seed_session(
+        self, request: Request, body: ScaleSWESeedSessionRequest | ResourcesSeedSessionRequest
+    ) -> ScaleSWESeedSessionResponse | ResourcesSeedSessionResponse:
         """Start the instance's image, then run ``pre_commands`` so the agent sees the prepared
         checkout (parent_commit, fix-commit history scrubbed) rather than the image's raw,
         unprepared state -- ``pre_commands`` used to only run inside the eval script at /verify
         time, which left an agent's own working session never actually checked out to the right
         commit at all.
+
+        An Environment Server seeds with a ``ResourcesSeedSessionRequest`` whose ``task_data`` is the row, gets the
+        sandbox as ``sandbox_access``, verifies through the session cookie and closes with ``/close_session``.
         """
-        session_id = request.session[SESSION_ID_KEY]
+        if isinstance(body, ResourcesSeedSessionRequest):
+            return await self._seed_resources_session(request, body)
+        return await self._seed_session(request.session[SESSION_ID_KEY], body)
+
+    async def _seed_resources_session(
+        self, request: Request, body: ResourcesSeedSessionRequest
+    ) -> ResourcesSeedSessionResponse:
+        session_id = body.resources_session_id
+        async with self._session_locks.setdefault(session_id, asyncio.Lock()):
+            if session_id in self._closed_sessions:
+                raise HTTPException(409, "Resources session is already closed")
+            seeded = self._resources_sessions.get(session_id)
+            if seeded is None:
+                try:
+                    task = ScaleSWESeedSessionRequest.model_validate(body.task_data)
+                except ValidationError as error:
+                    raise HTTPException(422, detail=error.errors(include_input=False)) from error
+                try:
+                    await self._seed_session(session_id, task)
+                    sandbox_access = SandboxAccess(
+                        connection=DirectSandboxConnection(
+                            provider_config_ref=self.config.sandbox_provider,
+                            descriptor=await self._session_id_to_sandbox[session_id].serialize(),
+                        ),
+                        workdir=task.workdir,
+                    )
+                except BaseException:
+                    # Nobody else can reach the sandbox of a failed seed, so stop it here.
+                    await self._stop_sandbox(self._session_id_to_sandbox.pop(session_id, None))
+                    raise
+                response = ResourcesSeedSessionResponse(resources_session_id=session_id, sandbox_access=sandbox_access)
+                seeded = self._resources_sessions[session_id] = (body.model_copy(deep=True), response)
+            elif seeded[0] != body:
+                raise HTTPException(409, "resources_session_id is already bound to a different request")
+            elif session_id not in self._session_id_to_sandbox:
+                raise HTTPException(409, "Resources session was already verified")
+            request.session[SESSION_ID_KEY] = session_id
+            return seeded[1]
+
+    async def _seed_session(self, session_id: str, body: ScaleSWESeedSessionRequest) -> ScaleSWESeedSessionResponse:
         await self._stop_sandbox(self._session_id_to_sandbox.pop(session_id, None))
         self._session_id_to_pristine_untracked.pop(session_id, None)
         self._session_id_to_base_commit.pop(session_id, None)
 
         sandbox = await self._create_sandbox(body)
+        # Owned from the start, so a close can stop it even when the setup below fails.
+        self._session_id_to_sandbox[session_id] = sandbox
 
         pre = clean_commands(body.pre_commands)
         if pre:
@@ -286,8 +343,26 @@ class ScaleSWEResourcesServer(SimpleResourcesServer):
         self._session_id_to_pristine_untracked[session_id] = await self._pristine_untracked_files(
             sandbox, body.workdir
         )
-        self._session_id_to_sandbox[session_id] = sandbox
         return ScaleSWESeedSessionResponse(sandbox_handle=str(sandbox._handle.sandbox_id))
+
+    async def close_resources_session(self, body: ResourcesCloseSessionRequest) -> ResourcesCloseSessionResponse:
+        """Stop an Environment Server session's sandbox and refuse later seeds; a failed stop stays retryable."""
+        session_id = body.resources_session_id
+        async with self._session_locks.setdefault(session_id, asyncio.Lock()):
+            seeded = self._resources_sessions.get(session_id)
+            episode_id = self._closed_sessions.get(session_id) or (seeded[0].episode_id if seeded else None)
+            if episode_id is not None and episode_id != body.episode_id:
+                raise HTTPException(409, "episode_id does not match the resources session")
+            if session_id not in self._closed_sessions:
+                sandbox = self._session_id_to_sandbox.get(session_id)
+                if sandbox is not None:
+                    await sandbox.stop()
+                self._session_id_to_sandbox.pop(session_id, None)
+                self._session_id_to_pristine_untracked.pop(session_id, None)
+                self._session_id_to_base_commit.pop(session_id, None)
+                self._resources_sessions.pop(session_id, None)
+                self._closed_sessions[session_id] = body.episode_id
+        return ResourcesCloseSessionResponse(resources_session_id=session_id)
 
     async def verify(self, request: Request, body: ScaleSWEVerifyRequest) -> ScaleSWEVerifyResponse:
         session_id = request.session[SESSION_ID_KEY]

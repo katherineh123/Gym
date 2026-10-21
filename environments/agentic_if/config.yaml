@@ -1,0 +1,25 @@
+# Agentic IF environment composition. Preparation reads the private rows from the plugin root passed with --search-dir.
+config_paths:
+  - resources_servers/agentic_if/configs/agentic_if.yaml
+
+agentic_if_resources:
+  resources_servers:
+    agentic_if:
+      # Stated here so listings show this environment's domain, not that of the task resources merged before it.
+      domain: instruction_following
+      description: Validates sealed agentic IF rows and grades the sessions their environment server records.
+      datasets:
+        - name: example
+          type: example
+          jsonl_fpath: resources_servers/agentic_if/data/example.jsonl
+          taskset: agentic_if:example
+          num_repeats: 1
+          # Its Scale-SWE rows have no declared license, as in scale_swe.
+          license: TBD
+        - name: instruction-following
+          type: validation
+          jsonl_fpath: environments/agentic_if/data/instruction-following.jsonl
+          prepare_script: environments/agentic_if/prepare.py
+          taskset: agentic_if:instruction-following
+          num_repeats: 1
+          license: NVIDIA Internal Use Only, Do Not Distribute

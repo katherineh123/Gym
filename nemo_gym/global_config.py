@@ -2063,8 +2063,9 @@ def resolve_dataset_agent(
     references (``environment_server_agent_refs``) must exist, a declaring agent must be one of them,
     and a declaring resources server must be the one the server binds. It returns the declaring agent,
     or the server's attributed agent (``environment_server_attributed_agent``), or None when the server
-    fronts several agents, such as a user and an assistant, without an ``agent_server``. It does not
-    require an agent -> resources edge.
+    fronts several agents, such as a user and an assistant, without an ``agent_server``. It also returns
+    None when the server references no agent because it runs the harness itself; the binding to the
+    declaring resources server is still required. It does not require an agent -> resources edge.
     Otherwise, first hit wins:
 
     1. ``pin`` (the dataset's ``agent:`` key) — validated: it must name the declaring agent
@@ -2098,10 +2099,6 @@ def resolve_dataset_agent(
                     "Its agent_server and other agent references must name agents."
                 )
             agent_names.append(name)
-        if not agent_names:
-            raise ConfigError(
-                f"Environment Server {environment_name!r} must bind a valid agent_server for this dataset."
-            )
         if pin is not None:
             raise ConfigError(
                 f"Taskset {taskset!r} pins agent {pin!r}, but a taskset routes to Environment Server "
