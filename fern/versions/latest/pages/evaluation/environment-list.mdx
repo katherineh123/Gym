@@ -95,6 +95,7 @@ gym list benchmarks --json   # machine-readable output for scripting or CI
 | Environment | Description | Verification | Benchmark |
 |---|---|---|---|
 | [ifbench](https://github.com/NVIDIA-NeMo/Gym/tree/main/resources_servers/ifbench) | IFBench with 57 instruction types (AllenAI library) | LLM judge | ✓ |
+| [advanced_if](https://github.com/NVIDIA-NeMo/Gym/tree/main/resources_servers/advanced_if) | AdvancedIF: complex single-turn, multi-turn carried-context and system-prompt instructions graded against expert rubrics | LLM judge (rubrics) | ✓ |
 | [inverse_if](https://github.com/NVIDIA-NeMo/Gym/tree/main/resources_servers/inverse_if) | Inverse instruction-following benchmark — instructions that counter conventional expectations | LLM judge (per-task) | ✓ |
 | [structured_outputs](https://github.com/NVIDIA-NeMo/Gym/tree/main/resources_servers/structured_outputs) | Schema adherence across structured output formats | Rule-based (schema validation) | ✓ |
 | [indirect_prompt_injection](https://github.com/NVIDIA-NeMo/Gym/tree/main/resources_servers/indirect_prompt_injection) | Resistance to injected instructions in tool-use trajectories | Rule-based (attack detection) | ✓ |

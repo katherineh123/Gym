@@ -1,0 +1,32 @@
+config_paths:
+- resources_servers/advanced_if/configs/advanced_if.yaml
+
+advanced_if_agent:
+  responses_api_agents:
+    simple_agent:
+      entrypoint: app.py
+      resources_server:
+        type: resources_servers
+        name: advanced_if_resources_server
+      model_server:
+        type: responses_api_models
+        name: policy_model
+advanced_if_resources_server:
+  resources_servers:
+    advanced_if:
+      datasets:
+      - name: advanced_if
+        type: benchmark
+        jsonl_fpath: benchmarks/advanced_if/data/advanced_if_benchmark.jsonl
+        prepare_script: benchmarks/advanced_if/prepare.py
+        # Rows carry the full conversation in responses_create_params.input; no prompt template is applied.
+        prompt_config: null
+        num_repeats: 1
+        license: CC BY-NC 4.0
+advanced_if_environment_server:
+  environment_servers:
+    legacy_agent:
+      entrypoint: app.py
+      agent_server:
+        type: responses_api_agents
+        name: advanced_if_agent

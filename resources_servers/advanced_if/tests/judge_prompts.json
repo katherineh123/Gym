@@ -1,0 +1,6 @@
+{
+  "license": "Apache-2.0 test stand-ins written for Gym; the real templates come from benchmarks/advanced_if/prepare.py",
+  "if_judge_prompt": "Judge the reply to the last user turn.\nHistory:\n{full_conversation}\nLast user turn:\n{user_prompt_last_turn}\nReply:\n{response_text}\nRubrics:\n{rubrics_text}\nAnswer as JSON: {{\"rubrics_check\": {{\"question_1\": \"...\"}}, \"SATISFIED_ALL_REQUIREMENTS\": \"YES\"}}",
+  "system_steer_judge_prompt": "Judge the reply against the system prompt.\n{few_shot_examples}\nSystem prompt:\n{system_prompt}\nLast user turn:\n{user_prompt_last_turn}\nReply:\n{response_text}\nRubrics:\n{rubrics_text}\nAnswer as JSON: {{\"rubrics_check\": {{\"question_1\": \"...\"}}, \"SATISFIED_ALL_REQUIREMENTS\": \"YES\"}}",
+  "system_steer_few_shot_examples": "Example: {\"rubrics_check\": {\"question_1\": \"Yes\"}, \"SATISFIED_ALL_REQUIREMENTS\": \"Yes\"}"
+}

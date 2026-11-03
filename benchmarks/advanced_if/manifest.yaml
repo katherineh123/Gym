@@ -1,0 +1,30 @@
+name: advanced_if
+version: 0.1.0
+experimental: true
+kind: benchmark
+integration_profile: custom-gym-verifier
+domain: instruction_following
+description: AdvancedIF rubric-judged instruction following across complex single-turn, multi-turn carried-context
+  and system-prompt steerability conversations.
+modality: text
+licensing: CC-BY-NC-4.0
+authors:
+- Katherine Huang
+reward:
+  range:
+  - 0.0
+  - 1.0
+  higher_is_better: true
+determinism: unknown
+resources_server: advanced_if
+agent_server: simple_agent
+datasets:
+- name: advanced_if
+  type: benchmark
+  jsonl_fpath: benchmarks/advanced_if/data/advanced_if_benchmark.jsonl
+  prepare_script: benchmarks/advanced_if/prepare.py
+  num_repeats: 1
+model_server: policy_model
+canonical_split: benchmark
+prompt_source: prepared
+lifecycle: active

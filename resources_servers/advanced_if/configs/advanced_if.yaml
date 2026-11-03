@@ -1,0 +1,31 @@
+advanced_if_resources_server:
+  resources_servers:
+    advanced_if:
+      entrypoint: app.py
+      domain: instruction_following
+      verified: false
+      description: AdvancedIF rubric-judged instruction following (complex, carried-context and system-prompt)
+      value: Improve complex, multi-turn and system-prompt instruction following graded against expert rubrics
+      judge_model_server:
+        type: responses_api_models
+        name: advanced_if_judge_model
+      # The official scorer's judge request: one user message, JSON mode, no temperature or reasoning effort.
+      judge_chat_completions_create_params:
+        messages: []
+        max_completion_tokens: 32768
+        response_format:
+          type: json_object
+      # Written by benchmarks/advanced_if/prepare.py (CC BY-NC 4.0, so not committed).
+      judge_prompts_fpath: benchmarks/advanced_if/data/advanced_if_judge_prompts.json
+      judge_max_concurrency: 64
+      judge_max_attempts: 3
+
+# The paper's judge is o3-mini (arXiv:2511.10507, section 3.2); the official scorer pins o3-mini-2025-01-31.
+# Set judge_base_url, judge_api_key and judge_model_name in env.yaml or on the command line to use another provider.
+advanced_if_judge_model:
+  responses_api_models:
+    openai_model:
+      entrypoint: app.py
+      openai_base_url: ${oc.select:judge_base_url,https://api.openai.com/v1}
+      openai_api_key: ${oc.select:judge_api_key,unset}
+      openai_model: ${oc.select:judge_model_name,o3-mini-2025-01-31}
