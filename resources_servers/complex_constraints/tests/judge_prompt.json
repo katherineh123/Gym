@@ -1,0 +1,16 @@
+{
+  "license": "Apache-2.0 test stand-in written for Gym; the real template and schema come from benchmarks/complex_constraints/prepare.py",
+  "judge_prompt_template": "Grade one reply against one criterion.\nReply:\n{{ rubric.response_to_grade }}\nCriterion:\n{{ rubric.criterion }}\nAnswer with a JSON object: {\"score\": \"1\" if the reply meets the criterion, else \"0\", \"rationale\": \"why\"}.",
+  "response_schema": {
+    "name": "criterion_verdict",
+    "schema": {
+      "type": "object",
+      "required": ["rationale", "score"],
+      "properties": {
+        "rationale": {"type": "string"},
+        "score": {"type": "string", "enum": ["0", "1"]}
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,30 @@
+name: complex_constraints
+version: 0.1.0
+experimental: true
+kind: benchmark
+integration_profile: custom-gym-verifier
+domain: instruction_following
+description: ComplexConstraints rubric-judged instruction following on realistic professional requests that carry many
+  interdependent constraints.
+modality: text
+licensing: CC-BY-4.0
+authors:
+- Katherine Huang
+reward:
+  range:
+  - 0.0
+  - 1.0
+  higher_is_better: true
+determinism: unknown
+resources_server: complex_constraints
+agent_server: simple_agent
+datasets:
+- name: complex_constraints
+  type: benchmark
+  jsonl_fpath: benchmarks/complex_constraints/data/complex_constraints_benchmark.jsonl
+  prepare_script: benchmarks/complex_constraints/prepare.py
+  num_repeats: 1
+model_server: policy_model
+canonical_split: benchmark
+prompt_source: prepared
+lifecycle: active

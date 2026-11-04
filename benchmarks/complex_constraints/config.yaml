@@ -1,0 +1,32 @@
+config_paths:
+- resources_servers/complex_constraints/configs/complex_constraints.yaml
+
+complex_constraints_agent:
+  responses_api_agents:
+    simple_agent:
+      entrypoint: app.py
+      resources_server:
+        type: resources_servers
+        name: complex_constraints_resources_server
+      model_server:
+        type: responses_api_models
+        name: policy_model
+complex_constraints_resources_server:
+  resources_servers:
+    complex_constraints:
+      datasets:
+      - name: complex_constraints
+        type: benchmark
+        jsonl_fpath: benchmarks/complex_constraints/data/complex_constraints_benchmark.jsonl
+        prepare_script: benchmarks/complex_constraints/prepare.py
+        # Each row's prompt is its only user turn in responses_create_params.input; no prompt template is applied.
+        prompt_config: null
+        num_repeats: 1
+        license: CC BY 4.0
+complex_constraints_environment_server:
+  environment_servers:
+    legacy_agent:
+      entrypoint: app.py
+      agent_server:
+        type: responses_api_agents
+        name: complex_constraints_agent
