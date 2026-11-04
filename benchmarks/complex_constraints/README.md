@@ -28,6 +28,11 @@ and requirements the user only implies. Expert-written rubrics check every const
   prompts, `CIF-001` to `CIF-075`, 1,559 criteria). The copy has the official file's 45 columns: `benchmark_id`,
   `prompt`, `use_case`, `instruction_type`, `prompt_style` and `criterion_1` to `criterion_40`. All 75 rows are used,
   in file order.
+- **Official data instead of the copy:** with a Hugging Face token that has access to the official dataset
+  (`HF_TOKEN`), run `COMPLEX_CONSTRAINTS_DATA_SOURCE=huggingface gym eval prepare --benchmark complex_constraints`.
+  `prepare.py` then reads `ComplexConstraints_benchmark_set.csv` at revision
+  `e9625c6f635f42b72cb85a04c2be64746f945126` and checks the same counts. Each prepared row records its source in
+  `data_source`.
 - **Judge prompt:** `JUDGE_PROMPT_TEMPLATE` and `RESPONSE_SCHEMA` from the official harness,
   [`surge-ai/complex-constraints` `scorer.py`](https://github.com/surge-ai/complex-constraints/blob/9ef1dd73d20030be94bdc399fd1c6ef7970f68d1/src/complex_constraints/scorer.py)
   at commit `9ef1dd73d20030be94bdc399fd1c6ef7970f68d1`. That repository carries no license, so the prompt is not
@@ -112,6 +117,17 @@ judge_model_name: gcp/google/gemini-3.5-flash
 Without `judge_*` settings the judge is `gemini-3.5-flash` on Google's OpenAI-compatible endpoint
 (`https://generativelanguage.googleapis.com/v1beta/openai`); set `judge_api_key` to a Gemini API key. Each task makes
 one policy call and one judge call per criterion, 1,559 judge calls per pass over the benchmark.
+
+Verification uses only the saved reply (`REVERIFY_MODE` is stateless), so a run can be judged again by another judge
+without new policy calls. Point `judge_*` at the other judge in a second config and write to a new output:
+
+```bash
+gym eval reverify --benchmark complex_constraints --model-type vllm_model \
+    --config /abs/path/models.yaml --config /abs/path/other_judge.yaml \
+    --inputs results/complex_constraints/<model>/rollouts_materialized_inputs.jsonl \
+    --rollouts results/complex_constraints/<model>/rollouts.jsonl \
+    --output results/complex_constraints/<model>_<judge>/rollouts.jsonl
+```
 
 ## Reference results
 

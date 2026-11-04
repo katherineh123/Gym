@@ -4,9 +4,11 @@
 
 Benchmark: 75 prompts (CIF-001 to CIF-075) with 1,559 rubric criteria, CC BY 4.0 (Mehta et al., arXiv:2606.09118).
 Surge AI published it as https://huggingface.co/datasets/surgeai/ComplexConstraints, which no longer serves it to
-anonymous users. The rows come from a copy of that dataset's CSV, saved as an .xlsx, in the MIT-licensed repository
-https://github.com/smarinacseas/failure-mode-id. The copy is pinned to a commit and checked against its sha256 and the
-published counts.
+anonymous users. By default the rows come from a copy of that dataset's CSV, saved as an .xlsx, in the MIT-licensed
+repository https://github.com/smarinacseas/failure-mode-id, pinned to a commit and checked against its sha256. With a
+Hugging Face token that has access to the official dataset (HF_TOKEN), set COMPLEX_CONSTRAINTS_DATA_SOURCE=huggingface
+to read the official CSV at a pinned revision instead. Either way the published counts are checked, and every row
+records its source in `data_source`.
 
 Judge prompt: the template and response schema of the official harness's scorer.py
 (https://github.com/surge-ai/complex-constraints), which carries no license. Both are read from scorer.py's syntax tree
@@ -16,16 +18,19 @@ Everything is written under `data/`, which is not committed.
 """
 
 import ast
+import csv
 import hashlib
 import io
 import json
+import os
 import re
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 from xml.etree import ElementTree
 
 import requests
+from huggingface_hub import hf_hub_download
 
 
 BENCHMARK_DIR = Path(__file__).parent
@@ -33,11 +38,16 @@ DATA_DIR = BENCHMARK_DIR / "data"
 OUTPUT_FPATH = DATA_DIR / "complex_constraints_benchmark.jsonl"
 JUDGE_PROMPT_FPATH = DATA_DIR / "complex_constraints_judge_prompt.json"
 
+# Which copy of the data to read: "mirror" (default) or "huggingface" (needs a token with access).
+DATA_SOURCE_ENV = "COMPLEX_CONSTRAINTS_DATA_SOURCE"
 DATA_SOURCE_COMMIT = "49eb91959b7c969adab9a0bad85002647be7e6f9"  # pragma: allowlist secret
 DATA_SOURCE_URL = (
     f"https://raw.githubusercontent.com/smarinacseas/failure-mode-id/{DATA_SOURCE_COMMIT}/data/ComplexConstraints.xlsx"
 )
 DATA_SOURCE_SHA256 = "57c26486dc4b39685d122cd4bcbef05377555cbdc507b6f97093d38cb52ff859"  # pragma: allowlist secret
+HF_DATASET = "surgeai/ComplexConstraints"
+HF_REVISION = "e9625c6f635f42b72cb85a04c2be64746f945126"  # pragma: allowlist secret
+HF_FILENAME = "ComplexConstraints_benchmark_set.csv"
 EXPECTED_ROWS = 75
 EXPECTED_CRITERIA = 1559
 # The dataset's columns besides criterion_1 ... criterion_40.
@@ -167,8 +177,21 @@ def prepare_judge_prompt(output_fpath: Path = JUDGE_PROMPT_FPATH) -> Path:
     return output_fpath
 
 
-def prepare(output_fpath: Path = OUTPUT_FPATH) -> Path:
-    rows = [build_row(row) for row in read_xlsx_rows(download(DATA_SOURCE_URL, DATA_SOURCE_SHA256))]
+def read_source_rows(source: str) -> Tuple[List[Dict[str, str]], str]:
+    """Return the dataset's rows and where they came from: the pinned copy, or the official CSV."""
+    if source == "mirror":
+        return read_xlsx_rows(download(DATA_SOURCE_URL, DATA_SOURCE_SHA256)), DATA_SOURCE_URL
+    if source == "huggingface":
+        csv_path = hf_hub_download(HF_DATASET, HF_FILENAME, repo_type="dataset", revision=HF_REVISION)
+        with open(csv_path, newline="", encoding="utf-8") as stream:
+            rows = list(csv.DictReader(stream, restval=""))
+        return rows, f"hf://datasets/{HF_DATASET}@{HF_REVISION}/{HF_FILENAME}"
+    raise ValueError(f"{DATA_SOURCE_ENV} must be 'mirror' or 'huggingface', got {source!r}")
+
+
+def prepare(output_fpath: Path = OUTPUT_FPATH, *, source: Optional[str] = None) -> Path:
+    source_rows, data_source = read_source_rows(source or os.environ.get(DATA_SOURCE_ENV, "mirror"))
+    rows = [{**build_row(row), "data_source": data_source} for row in source_rows]
     criteria = sum(len(row["rubrics"]) for row in rows)
     if len(rows) != EXPECTED_ROWS or criteria != EXPECTED_CRITERIA:
         raise ValueError(

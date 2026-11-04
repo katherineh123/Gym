@@ -163,6 +163,11 @@ def test_extract_judge_prompt_rejects_unexpected_sources(source, error) -> None:
         prepare.extract_judge_prompt(source)
 
 
+@pytest.fixture(autouse=True)
+def default_data_source(monkeypatch) -> None:
+    monkeypatch.delenv(prepare.DATA_SOURCE_ENV, raising=False)
+
+
 def fake_get(responses: dict):
     def get(url, timeout):
         assert timeout == 60
@@ -190,11 +195,50 @@ def test_prepare_pins_both_sources_and_writes_rows_and_judge_prompt(tmp_path, mo
     assert [row["task_id"] for row in written] == ["CIF-001", "CIF-002"]
     assert written[0]["rubrics"] == ["Covers Monday.", "No doubles."]
     assert written[1]["responses_create_params"]["input"][0]["content"] == "Sum the sales."
+    assert {row["data_source"] for row in written} == {prepare.DATA_SOURCE_URL}
     assert "café" in output.read_text(encoding="utf-8")
     judge = json.loads((tmp_path / prepare.JUDGE_PROMPT_FPATH.name).read_text(encoding="utf-8"))
     assert judge["source"] == prepare.JUDGE_SOURCE_URL
     assert judge["response_schema"]["name"] == "verdict"
     assert judge["judge_prompt_template"].startswith("Reply: {{ rubric.response_to_grade }}")
+
+
+def test_prepare_reads_the_official_csv_when_the_source_is_huggingface(tmp_path, monkeypatch) -> None:
+    csv_path = tmp_path / prepare.HF_FILENAME
+    csv_path.write_text(
+        ",".join(HEADER) + "\n"
+        'CIF-001,"Plan a rota.\nTwo shifts.",Logistics,Negative,Direct prompting,Covers Monday., No doubles. \n'
+        "CIF-002,Sum the sales.,Data,Multistep,Context prompting,Total is 12.\n",
+        encoding="utf-8",
+    )
+    scorer = SCORER_SOURCE.encode()
+    monkeypatch.setenv(prepare.DATA_SOURCE_ENV, "huggingface")
+    monkeypatch.setattr(prepare, "EXPECTED_ROWS", 2)
+    monkeypatch.setattr(prepare, "EXPECTED_CRITERIA", 3)
+    monkeypatch.setattr(prepare, "JUDGE_SOURCE_SHA256", hashlib.sha256(scorer).hexdigest())
+    output = tmp_path / "out.jsonl"
+
+    with (
+        patch.object(prepare, "hf_hub_download", return_value=str(csv_path)) as hf_download,
+        patch.object(prepare.requests, "get", side_effect=fake_get({prepare.JUDGE_SOURCE_URL: scorer})),
+    ):
+        prepare.prepare(output)
+
+    hf_download.assert_called_once_with(
+        "surgeai/ComplexConstraints", prepare.HF_FILENAME, repo_type="dataset", revision=prepare.HF_REVISION
+    )
+    written = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert written[0]["responses_create_params"]["input"][0]["content"] == "Plan a rota.\nTwo shifts."
+    assert written[0]["rubrics"] == ["Covers Monday.", "No doubles."]
+    assert written[1]["rubrics"] == ["Total is 12."]
+    assert {row["data_source"] for row in written} == {
+        f"hf://datasets/surgeai/ComplexConstraints@{prepare.HF_REVISION}/{prepare.HF_FILENAME}"
+    }
+
+
+def test_prepare_rejects_an_unknown_data_source(tmp_path) -> None:
+    with pytest.raises(ValueError, match="must be 'mirror' or 'huggingface'"):
+        prepare.prepare(tmp_path / "out.jsonl", source="kaggle")
 
 
 def test_download_refuses_changed_content() -> None:

@@ -39,3 +39,8 @@ class TaskData(BaseModel):
         description="Expert-written criteria for the reply; each one is judged in its own call.",
         json_schema_extra={"consumed_by": ["verify"]},
     )
+    data_source: Optional[str] = Field(
+        default=None,
+        description="Where prepare.py read the row: the pinned copy's URL or the official Hugging Face revision.",
+        json_schema_extra={"consumed_by": ["provenance"]},
+    )
