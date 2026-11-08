@@ -21,6 +21,7 @@ async def run_cell(
     verify: Callable[..., Awaitable[dict]],
     resume: bool = False,
     validate_only: bool = False,
+    phases: tuple[tuple[int, int], ...] = PHASES,
 ) -> dict | None:
     """Validate saved state before resuming; validation never creates or dispatches work."""
     fingerprint = judge.sha(
@@ -28,7 +29,7 @@ async def run_cell(
             "dataset": dataset.report,
             "settings": settings,
             "policy": judge.VERSION,
-            "phases": PHASES,
+            "phases": phases,
         }
     )
     path = directory / "cells" / (judge.sha(identifier) + ".json")
@@ -87,7 +88,7 @@ async def run_cell(
         if "selected" in state:
             await verify(state["selected"], dataset.criteria[identifier], validate_only=True)
         return None
-    for stage, (seed, cap) in enumerate(PHASES):
+    for stage, (seed, cap) in enumerate(phases):
         if "selected" in state:
             break
         if stage < len(state["attempts"]):

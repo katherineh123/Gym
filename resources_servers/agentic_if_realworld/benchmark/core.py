@@ -17,12 +17,28 @@ from .policy import validate_response_judge as judge
 
 TOOLS_MARKER = "APPLICABLE TOOL DEFINITIONS AND PARAMETER SCHEMAS (JSON):\n"
 HISTORY_MARKER = "\n\nCAPTURED PRE-TARGET HISTORY (role-tagged JSON):\n"
+# A derived release may label the history neutrally instead; the frozen release keeps HISTORY_MARKER.
+CONVERSATION_MARKER = "\n\nCONVERSATION SO FAR (role-tagged JSON):\n"
 ROOT = Path(__file__).parent
 DEFAULT_JUDGE_MODEL = "judge-model"
 DEFAULT_DATA_DIR = Path.home() / ".cache/nemo-gym/agentic_if_realworld/1.0.0"
 BASE_INPUT_STRINGS = judge.input_strings
 TRANSPORT_VERSION = "exact-payload-binding-enum-transport-v2"
 PHASES = ((17, 32768), (17, 65536), (17, 131072), (29, 131072), (43, 131072))
+SEEDS = (17, 29, 43)
+
+
+def phases(first_seed: int = 17) -> tuple[tuple[int, int], ...]:
+    """Return the adaptive schedule starting from another frozen seed; caps and order are unchanged.
+
+    Seed 17 returns PHASES exactly. Seeds 29 and 43 rotate the seed sequence so that repeated runs differ only in
+    their seeds, for measuring generation variance.
+    """
+    if first_seed not in SEEDS:
+        raise ValueError("First seed must be one of the protocol seeds 17, 29 or 43")
+    start = SEEDS.index(first_seed)
+    order = SEEDS[start:] + SEEDS[:start]
+    return tuple((order[0], cap) for _, cap in PHASES[:3]) + tuple((seed, PHASES[-1][1]) for seed in order[1:])
 
 
 def read(path: Path) -> dict:
@@ -86,9 +102,10 @@ def captured_context(request: dict) -> tuple[list, list, str]:
     if message["role"] != "user" or not isinstance(message["content"], str):
         raise ValueError("Invalid wrapper transport")
     content = message["content"]
-    if content.count(TOOLS_MARKER) != 1 or content.count(HISTORY_MARKER) != 1:
+    markers = [marker for marker in (HISTORY_MARKER, CONVERSATION_MARKER) if marker in content]
+    if content.count(TOOLS_MARKER) != 1 or len(markers) != 1 or content.count(markers[0]) != 1:
         raise ValueError("Missing or ambiguous wrapper boundaries")
-    tool_text, history_text = content.split(TOOLS_MARKER, 1)[1].split(HISTORY_MARKER, 1)
+    tool_text, history_text = content.split(TOOLS_MARKER, 1)[1].split(markers[0], 1)
     tools, history = json.loads(tool_text), json.loads(history_text)
     if not isinstance(tools, list) or not isinstance(history, list):
         raise TypeError("Invalid registry/history")
@@ -181,15 +198,31 @@ def bounded_schema(canonical: dict, payload: dict) -> dict:
     return result
 
 
+def derived_from(directory: Path) -> dict | None:
+    """Return a derived release's parent binding, or None for the frozen release or a missing manifest."""
+    path = Path(directory) / "release_manifest.json"
+    return read(path).get("derived_from") if path.is_file() else None
+
+
 class Dataset:
-    """Load the internal release, optionally overridden by an exact private copy."""
+    """Load the internal release, optionally overridden by an exact private copy.
+
+    A derived release (for example a cleaned subset with edited inputs or criteria) is a private directory whose
+    manifest names the frozen release manifest it was built from under `derived_from`. Its own manifest then binds its
+    artifacts by hash, and it declares its own item count and accounting instead of the frozen 969-task totals. The
+    frozen judge prompt, provenance and exposure rules still apply unchanged.
+    """
 
     def __init__(self, directory: Path | str | None = None, *, synthetic: bool = False):
         self.directory = directory = Path(directory or os.environ.get("AGENTIC_IF_DATA_DIR") or DEFAULT_DATA_DIR)
         self.synthetic = synthetic
         self.release = read(directory / "release_manifest.json")
         self.pin = read(ROOT / "source_manifest.json")
-        if not synthetic and digest(directory / "release_manifest.json") != self.pin["release_manifest_sha256"]:
+        self.derived_from = None if synthetic else self.release.get("derived_from")
+        if self.derived_from is not None:
+            if self.derived_from.get("release_manifest_sha256") != self.pin["release_manifest_sha256"]:
+                raise ValueError("Derived release must name the frozen release manifest it was built from")
+        elif not synthetic and digest(directory / "release_manifest.json") != self.pin["release_manifest_sha256"]:
             raise ValueError("Release manifest hash mismatch")
         if synthetic and self.release.get("synthetic") is not True:
             raise ValueError("Synthetic mode requires an explicitly synthetic release")
@@ -207,7 +240,8 @@ class Dataset:
         self.manifest_sha256 = digest(directory / "release_manifest.json")
         if set(self.inputs) != set(self.criteria) or set(self.inputs) != set(self.provenance):
             raise ValueError("Input/criteria/provenance cohort mismatch")
-        if len(self.inputs) != self.release["requested_items"] or (not synthetic and len(self.inputs) != 969):
+        frozen = not synthetic and self.derived_from is None
+        if len(self.inputs) != self.release["requested_items"] or (frozen and len(self.inputs) != 969):
             raise ValueError("Declared task count mismatch")
         seen = set()
         tools_count = Counter()
@@ -247,7 +281,18 @@ class Dataset:
             "input_sha256": digest(directory / "inference_inputs.jsonl"),
             "criteria_sha256": digest(directory / "criteria.jsonl"),
         }
-        if not synthetic and (
+        if self.derived_from is not None:
+            self.report["derived_from"] = self.derived_from
+            declared = self.release.get("accounting", {})
+            actual = {
+                "views": self.report["views"],
+                "atomic_checks": self.report["atomic_checks"],
+                "nonempty_registries": self.report["nonempty_registries"],
+                "empty_registries": self.report["empty_registries"],
+            }
+            if declared != actual:
+                raise ValueError("Derived release accounting mismatch")
+        if frozen and (
             self.report["views"] != {"original_failure_focused": 912, "supplemental_active_single_turn": 57}
             or self.report["atomic_checks"] != 2803
             or tools_count != {True: 817, False: 152}

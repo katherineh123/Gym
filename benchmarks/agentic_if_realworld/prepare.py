@@ -7,14 +7,20 @@ import os
 import tempfile
 from pathlib import Path
 
-from resources_servers.agentic_if_realworld.benchmark.core import DEFAULT_DATA_DIR, Dataset, source_preflight
+from resources_servers.agentic_if_realworld.benchmark.core import (
+    DEFAULT_DATA_DIR,
+    Dataset,
+    derived_from,
+    source_preflight,
+)
 from resources_servers.agentic_if_realworld.benchmark.registry import fetch_release, private_path
 
 
 def prepare() -> Path:
     synthetic = os.environ.get("AGENTIC_IF_SYNTHETIC") == "1"
     directory = Path(os.environ.get("AGENTIC_IF_DATA_DIR") or DEFAULT_DATA_DIR)
-    if not synthetic:
+    # A derived release holds its own edited artifacts; fetching would compare them with the frozen hashes.
+    if not synthetic and derived_from(directory) is None:
         fetch_release(directory)
     dataset = Dataset(directory, synthetic=synthetic)
     if not dataset.synthetic:

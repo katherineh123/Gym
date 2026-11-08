@@ -191,6 +191,28 @@ Uncertain dispatch or a run stopped mid-generation requires
 safe resume cases and how to preserve a run that cannot be recovered automatically.
 Keep N within the policy server's capacity.
 
+### Repeated runs with other seeds
+
+To measure generation variance, repeat a run with
+`++policy_model.responses_api_models.agentic_if_text.first_seed=29` or `=43` in a new run
+directory. The schedule keeps the same caps and order and rotates the frozen seeds, so
+seed 29 runs `(29,32768), (29,65536), (29,131072), (43,131072), (17,131072)`. The
+default `17` is the original schedule. The profile name gains a `_seed29` or `_seed43`
+suffix, and resuming across seeds is rejected.
+
+### Derived private releases
+
+A derived release is a private directory built from the frozen release, for example a
+cleaned subset with edited inputs or criteria. Its `release_manifest.json` names the
+frozen manifest under `derived_from.release_manifest_sha256` and declares its own
+`requested_items` and `accounting` (`views`, `atomic_checks`, `nonempty_registries`,
+`empty_registries`). Every listed artifact stays bound by its hash. The frozen judge
+prompt, source audit, provenance and exposure rules apply unchanged, and the provenance
+`input_sha256` values must match the edited inputs. Preparation never fetches registry
+artifacts into a derived directory. A derived wrapper may label the history
+`CONVERSATION SO FAR (role-tagged JSON):` instead of the captured-history label. Report
+results from a derived release separately from the 969-task benchmark.
+
 ### Private YAML configuration
 
 Model endpoints, model names and the receipt directory are ordinary Gym/Hydra

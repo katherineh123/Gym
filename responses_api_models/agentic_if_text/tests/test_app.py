@@ -42,6 +42,7 @@ def test_adapter_preserves_usage_and_does_not_invent_missing_counts(tmp_path, mo
             api_key_env="SYNTHETIC",
             receipt_dir=str(tmp_path / "receipts"),
             reasoning_effort=reasoning_effort,
+            first_seed=17,
         )
     )
     result = asyncio.run(model.responses(body))
@@ -76,3 +77,42 @@ def test_adapter_refuses_to_start_without_its_key(tmp_path, monkeypatch):
     model = app.TextModel.model_construct(config=config)
     with pytest.raises(ValueError, match="SYNTHETIC_MISSING_KEY is not set"):
         model.setup_webserver()
+
+
+@pytest.mark.parametrize("first_seed", [17, 29, 43])
+def test_adapter_accepts_only_its_own_seed_schedule(tmp_path, monkeypatch, first_seed):
+    create(tmp_path / "data")
+    dataset = Dataset(tmp_path / "data", synthetic=True)
+    requests = []
+
+    async def generate(request, **kwargs):
+        requests.append(request)
+        return {
+            "response": {"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "OK."}}]}
+        }
+
+    monkeypatch.setattr(app, "wire_call", generate)
+    monkeypatch.setenv("SYNTHETIC", "synthetic")
+    model = app.TextModel.model_construct(
+        config=SimpleNamespace(
+            model="synthetic-policy",
+            endpoint="http://synthetic.invalid",
+            api_key_env="SYNTHETIC",
+            receipt_dir=str(tmp_path / "receipts"),
+            reasoning_effort=None,
+            first_seed=first_seed,
+        )
+    )
+    for seed in (17, 29, 43):
+        body = NeMoGymResponseCreateParamsNonStreaming(
+            input=dataset.request("synthetic")["messages"],
+            temperature=0.7,
+            max_output_tokens=32768,
+            metadata={"seed": str(seed), "receipt_id": str(seed % 10) * 64},
+        )
+        if seed == first_seed:
+            assert asyncio.run(model.responses(body)).output_text == "OK."
+        else:
+            with pytest.raises(ValueError, match="outside frozen adaptive profile"):
+                asyncio.run(model.responses(body))
+    assert [request["seed"] for request in requests] == [first_seed]

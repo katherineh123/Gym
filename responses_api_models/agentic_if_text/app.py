@@ -20,7 +20,7 @@ from nemo_gym.models import (
     SimpleResponsesAPIModel,
 )
 from nemo_gym.utils import is_nemo_gym_fastapi_entrypoint
-from resources_servers.agentic_if_realworld.benchmark.core import PHASES, captured_context, judge, write
+from resources_servers.agentic_if_realworld.benchmark.core import captured_context, judge, phases, write
 from resources_servers.agentic_if_realworld.benchmark.transport import delivered, validate_endpoint, wire_call
 
 
@@ -30,6 +30,7 @@ class TextModelConfig(BaseResponsesAPIModelConfig):
     receipt_dir: str
     api_key_env: str = "AGENTIC_IF_POLICY_API_KEY"
     reasoning_effort: Literal["max"] | None = None
+    first_seed: Literal[17, 29, 43] = 17
 
 
 class TextModel(SimpleResponsesAPIModel):
@@ -65,7 +66,8 @@ class TextModel(SimpleResponsesAPIModel):
         metadata = body.metadata or {}
         seed, cap = int(metadata["seed"]), body.max_output_tokens
         receipt_id = metadata["receipt_id"]
-        if not re.fullmatch(r"[a-f0-9]{64}", receipt_id) or (seed, cap) not in PHASES or body.temperature != 0.7:
+        schedule = phases(self.config.first_seed)
+        if not re.fullmatch(r"[a-f0-9]{64}", receipt_id) or (seed, cap) not in schedule or body.temperature != 0.7:
             raise ValueError("Generation outside frozen adaptive profile")
         upstream = {
             "model": self.config.model,

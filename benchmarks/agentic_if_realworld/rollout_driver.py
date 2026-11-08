@@ -20,6 +20,7 @@ from resources_servers.agentic_if_realworld.benchmark.core import (
     digest,
     indexed,
     judge,
+    phases,
     read,
     runtime_identity,
     source_preflight,
@@ -61,6 +62,8 @@ async def run_rollout_collection(rollout_collection_config, global_config_dict) 
     reasoning_effort = model.get("reasoning_effort")
     if reasoning_effort not in (None, "max"):
         raise ValueError("Policy reasoning effort must be null or max")
+    first_seed = model.get("first_seed", 17)
+    schedule = phases(first_seed)
     dataset = Dataset(resource["dataset_dir"], synthetic=resource["synthetic"])
     if not dataset.synthetic:
         source_preflight(resource["split_registry_path"], resource["ground_truth_path"], directory=dataset.directory)
@@ -81,7 +84,8 @@ async def run_rollout_collection(rollout_collection_config, global_config_dict) 
             ]
         },
         "policy_assets": dataset.pin["policy_assets"],
-        "profile": "adaptive_first_complete_max_effort_v1" if reasoning_effort else "adaptive_first_complete_v1",
+        "profile": ("adaptive_first_complete_max_effort_v1" if reasoning_effort else "adaptive_first_complete_v1")
+        + ("" if first_seed == 17 else f"_seed{first_seed}"),
         "response_source": resource.get("response_source", "raw_receipt"),
         "runtime": runtime_identity(),
         "observability": {
@@ -238,6 +242,7 @@ async def run_rollout_collection(rollout_collection_config, global_config_dict) 
                     verify=verify,
                     resume=True,
                     validate_only=True,
+                    phases=schedule,
                 )
             async with slots:
                 # After a failure, admit no new task, but let started ones settle their journals.
@@ -254,6 +259,7 @@ async def run_rollout_collection(rollout_collection_config, global_config_dict) 
                             generate=generate,
                             verify=verify,
                             resume=config.resume_from_cache,
+                            phases=schedule,
                         )
                     # Exactly one canonical row per task; attempt placeholders never enter metrics.
                     state = read(directory / "cells" / (judge.sha(identifier) + ".json"))
