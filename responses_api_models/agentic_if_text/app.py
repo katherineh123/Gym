@@ -31,6 +31,9 @@ class TextModelConfig(BaseResponsesAPIModelConfig):
     api_key_env: str = "AGENTIC_IF_POLICY_API_KEY"
     reasoning_effort: Literal["max"] | None = None
     first_seed: Literal[17, 29, 43] = 17
+    # Some hosted models reject any temperature (Claude Opus 5.5: "`temperature` is deprecated for this model").
+    # Null sends their requests without one; such a run is outside the T 0.7 profile, and its profile name says so.
+    temperature: Literal[0.7] | None = 0.7
 
 
 class TextModel(SimpleResponsesAPIModel):
@@ -78,6 +81,8 @@ class TextModel(SimpleResponsesAPIModel):
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        if self.config.temperature is None:
+            del upstream["temperature"]
         if self.config.reasoning_effort is not None:
             upstream["chat_template_kwargs"] = {"reasoning_effort": self.config.reasoning_effort}
         path = Path(self.config.receipt_dir) / "model" / (receipt_id + ".json")

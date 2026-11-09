@@ -429,6 +429,7 @@ def test_adaptive_capture_selected_parameters_and_resume(
     assert snapshot.policy_model.responses_api_models.agentic_if_text.reasoning_effort == reasoning_effort
     run_settings = core.read(tmp_path / "out.run.json")["settings"]
     assert run_settings["policy"]["reasoning_effort"] == reasoning_effort
+    assert run_settings["policy"]["temperature"] == 0.7
     assert run_settings["profile"] == (
         "adaptive_first_complete_max_effort_v1" if reasoning_effort else "adaptive_first_complete_v1"
     )
@@ -537,3 +538,38 @@ def test_runtime_fingerprint_covers_active_agent_and_core(monkeypatch):
         lambda path: "modified-agent" if path.as_posix().endswith("simple_agent/app.py") else digest(path),
     )
     assert core.runtime_identity() != before
+
+
+def test_profile_name_shows_every_departure_from_the_default_schedule():
+    assert (
+        rollout_driver.profile_name(reasoning_effort=None, first_seed=17, temperature=0.7)
+        == "adaptive_first_complete_v1"
+    )
+    assert (
+        rollout_driver.profile_name(reasoning_effort="max", first_seed=29, temperature=0.7)
+        == "adaptive_first_complete_max_effort_v1_seed29"
+    )
+    assert (
+        rollout_driver.profile_name(reasoning_effort=None, first_seed=43, temperature=None)
+        == "adaptive_first_complete_v1_seed43_no_temperature"
+    )
+
+
+@pytest.mark.parametrize("temperature", [0.5, 1.0])
+def test_driver_rejects_policy_temperatures_outside_the_profile(monkeypatch, temperature):
+    monkeypatch.setenv("SYNTHETIC", "synthetic")
+    config = SimpleNamespace(num_repeats=1, fan_out=None, responses_create_params=None)
+    settings = {
+        "agentic_if_realworld_resources": {
+            "resources_servers": {
+                "agentic_if_realworld": {
+                    "judge_endpoint": "http://synthetic.invalid",
+                    "judge_model": "synthetic-judge",
+                    "judge_api_key_env": "SYNTHETIC",
+                }
+            }
+        },
+        "policy_model": {"responses_api_models": {"agentic_if_text": {"temperature": temperature}}},
+    }
+    with pytest.raises(ValueError, match="temperature must be 0.7 or null"):
+        asyncio.run(rollout_driver.run_rollout_collection(config, settings))

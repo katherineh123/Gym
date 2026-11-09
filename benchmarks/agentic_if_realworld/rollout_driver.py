@@ -36,6 +36,16 @@ from resources_servers.agentic_if_realworld.benchmark.transport import delivered
 LOGGER = logging.getLogger(__name__)
 
 
+def profile_name(*, reasoning_effort: str | None, first_seed: int, temperature: float | None) -> str:
+    """Name the generation profile a run used; every departure from the default schedule is visible in the name."""
+    base = "adaptive_first_complete_max_effort_v1" if reasoning_effort else "adaptive_first_complete_v1"
+    return (
+        base
+        + ("" if first_seed == 17 else f"_seed{first_seed}")
+        + ("" if temperature is not None else "_no_temperature")
+    )
+
+
 async def run_rollout_collection(rollout_collection_config, global_config_dict) -> None:
     from omegaconf import OmegaConf
 
@@ -62,6 +72,9 @@ async def run_rollout_collection(rollout_collection_config, global_config_dict) 
     reasoning_effort = model.get("reasoning_effort")
     if reasoning_effort not in (None, "max"):
         raise ValueError("Policy reasoning effort must be null or max")
+    temperature = model.get("temperature", 0.7)
+    if temperature not in (0.7, None):
+        raise ValueError("Policy temperature must be 0.7 or null")
     first_seed = model.get("first_seed", 17)
     schedule = phases(first_seed)
     dataset = Dataset(resource["dataset_dir"], synthetic=resource["synthetic"])
@@ -73,6 +86,7 @@ async def run_rollout_collection(rollout_collection_config, global_config_dict) 
         "policy": {
             **{k: model[k] for k in ["endpoint", "model", "api_key_env"]},
             "reasoning_effort": reasoning_effort,
+            "temperature": temperature,
         },
         "judge": {
             k: resource[k]
@@ -84,8 +98,7 @@ async def run_rollout_collection(rollout_collection_config, global_config_dict) 
             ]
         },
         "policy_assets": dataset.pin["policy_assets"],
-        "profile": ("adaptive_first_complete_max_effort_v1" if reasoning_effort else "adaptive_first_complete_v1")
-        + ("" if first_seed == 17 else f"_seed{first_seed}"),
+        "profile": profile_name(reasoning_effort=reasoning_effort, first_seed=first_seed, temperature=temperature),
         "response_source": resource.get("response_source", "raw_receipt"),
         "runtime": runtime_identity(),
         "observability": {

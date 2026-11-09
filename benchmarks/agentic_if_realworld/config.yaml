@@ -24,3 +24,4 @@ policy_model:
       api_key_env: AGENTIC_IF_POLICY_API_KEY
       reasoning_effort: null
       first_seed: 17
+      temperature: 0.7

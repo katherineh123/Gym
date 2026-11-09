@@ -200,6 +200,15 @@ seed 29 runs `(29,32768), (29,65536), (29,131072), (43,131072), (17,131072)`. Th
 default `17` is the original schedule. The profile name gains a `_seed29` or `_seed43`
 suffix, and resuming across seeds is rejected.
 
+### Models that reject a temperature
+
+Some hosted models refuse any temperature (Claude Opus 5.5 answers "`temperature` is
+deprecated for this model"). For those, set
+`++policy_model.responses_api_models.agentic_if_text.temperature=null`: the adapter then
+sends its requests without a temperature and keeps the seeds and caps. Such a run is not
+the T 0.7 profile. Its profile name gains a `_no_temperature` suffix, the run settings
+record `temperature: null`, and its results should be reported as such.
+
 ### Derived private releases
 
 A derived release is a private directory built from the frozen release, for example a
